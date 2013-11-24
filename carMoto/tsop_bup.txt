@@ -1,0 +1,134 @@
+id analog(){
+    v0=0;
+    v1=0;
+    for (int i = 0; i<4; i++) {
+        v0=analogRead(0)+v0;
+        v1=analogRead(1)+v1;
+    }
+    dl=v1-v0;
+    if (printOn) {
+        Serial.print(v0);
+        Serial.print("   ");
+        Serial.print(v1);
+        Serial.print("   ");
+        Serial.print(dl);
+        Serial.print("   ");
+    }
+    if (v0>3200 || v1>3200) {
+        alloff();
+        return;
+    }
+    if (v0<150 || v1<150) {
+        alloff();
+
+        return;
+    }
+    // 
+
+    vor();    
+    int spL=155;
+    int spR=155;
+    if (dl<-50) {
+        spR=10;
+    } 
+    if (dl>+50) {
+        spL=10;
+    } 
+    mhl.setSpeed(spL);
+    mhr.setSpeed(spR);
+    mvr.setSpeed(spR);
+    mvl.setSpeed(spL);
+    Serial.print(spL);
+    Serial.print("   ");
+    Serial.println(spR);
+    return;
+}  
+
+char tsopEval() {
+    // translates inp to character
+    byte cmp;
+    inp=inp >>4;
+    cmp=byte(inp);
+    switch (cmp) {
+    case 0x00:
+        return '.';   // green
+    case 0x02:
+        return 'z';    //EPG
+    case 0x05:
+        return '5';
+    case 0x06:
+        return '2';
+    case 0x07:
+        return '8';
+    case 0x08:
+        return 'r';    // red        
+    case 0x09:
+        return '4';
+    case 0x0A:
+        return '1';
+    case 0x0B:
+        return '7';
+    case 0x0D:
+        return '6';
+    case 0x0E:
+        return '3';
+    case 0x0F:
+        return '9';
+    case 0x21:
+        return 'o';   // exit
+    case 0x22:
+        return 'u';   // time
+    case 0x23:
+        return '0';  
+    case 0x27:
+        return 'j';   // ch-      
+    case 0x2d:
+        return '-';   // vol-
+    case 0x83:
+        return 'i';   // ch+
+    case 0x8a:
+        return 'b';   // blue
+    case 0x88:
+        return 'd';   // off
+    case 0xa1:
+        return '+';   // vol+
+    case 0xa8:
+        return 'l';   
+    case 0xaf:
+        return 'f';   //OK
+    }
+
+    Serial.print('=');
+    Serial.println(inp,HEX);
+    return '.';
+}
+
+char tsopGet() {
+    char c;
+    unsigned long dur;
+    while (true) {
+        dur = pulseIn(tsop_con, HIGH,10000);
+        if (dur==0) {
+            if (inp==0) return '.';
+            c=tsopEval();
+            inp=0;
+            return c;
+        } 
+        else {
+            if (dur<550) {   // short
+                inp=inp << 1;
+            }        
+            else  if (dur>2000) { //begin 
+                inp=0;
+            } 
+            else  if (dur>1400) {
+                inp=inp << 1;
+                inp++;
+            } 
+            else {
+                Serial.print(dur);
+            }
+        }
+    }
+}
+
