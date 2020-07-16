@@ -7,14 +7,13 @@ const char stUsi[]   PROGMEM = "USISR\0USIDR\0USICR\0Inp  \0Out  ";
 volatile uint8_t usiPuf[usiAnz];
 volatile uint8_t usiInp=0;
 volatile uint8_t usiOutp=0;
-volatile bool usiDa = false;
 
 void usi_setup_both() {
   DDRB |= _BV(PB6);  // DO (MISO!)  Ausgang
   DDRB &= ~_BV(PB5); // DI (MOSI!) Input
 	PORTB |= _BV(PB5); // Pull-up
   //      Three-wire mode  External, positive edge
-  USICR = (1<<USIOIE) | (1<<USIWM0) | (1<<USICS1);
+  USICR = (0<<USIOIE) | (1<<USIWM0) | (1<<USICS1);
  	USIDR =0;
   USISR |= 1 << USIOIF;
 }
@@ -45,11 +44,15 @@ uint8_t usi_getch() {
 void usi_putch(uint8_t data) {
 	USIDR =data;
   USISR |= 1 << USIOIF;
-  usiDa=false; // set in int
-  //while ((USISR & (1 << USIOIF)) == 0 ) {
-  while (!usiDa) { 
+  while ((USISR & (1 << USIOIF)) == 0 ) {
       USICR  |= (1<<USICLK)|(1<<USITC);
       _delay_us(4);
+  }
+  usiPuf[usiInp] = USIDR;
+  USISR  = (1<<USIOIF); // clear overflow flag
+  usiInp++;
+  if (usiInp>=usiAnz) {
+    usiInp=0;
   }
 }
 
@@ -61,7 +64,6 @@ ISR(USI_OVERFLOW_vect) {
   if (usiInp>=usiAnz) {
     usiInp=0;
   }
-  usiDa  = true;
 }
 
 void usi_info() {

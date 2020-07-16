@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 
+
 extern unsigned char __heap_start;
 uint8_t  epr[E2END + 1] EEMEM;
 
@@ -17,6 +18,7 @@ const char stDif  [] PROGMEM = " Dif= ";
 const char stErgeb[] PROGMEM = "Erg= ";
 const char stFree [] PROGMEM = "Free ";
 const char stInp  [] PROGMEM = "Inp= ";
+const char stLast [] PROGMEM = "Last= ";
 const char stPe   [] PROGMEM = "Pe= ";
 const char stQuot [] PROGMEM = " Quo= ";
 
@@ -33,7 +35,7 @@ bool  alert=false;
 
 uint8_t token='#';
 
-#define usiInAnz 5
+#define usiInAnz 10
 volatile uint8_t usiInPuf[usiInAnz];
 volatile uint8_t usiInP=0;
 volatile uint8_t usiReaP=0;
@@ -68,11 +70,6 @@ void usi_putch(uint8_t chr) {
   }
 }
 
-/*
-  ignore everything above 127
-  if Token     
-
-*/
 
 ISR(USI_OVF_vect) {
   uint8_t chr;
@@ -121,8 +118,8 @@ uint8_t x=1;
 
 void usi_num32(uint32_t val){
 	// send a number as ASCII text
-  //             987654321
-	uint32_t divby=100000000; // change by dataType
+  //              987654321
+	uint32_t divby=1000000000; // 
   bool anf=true;
   uint8_t tmp;
 	while (divby>=1){
@@ -173,10 +170,14 @@ void setLed (bool was) {
 ldiv_t ld;
 
 void prim(uint32_t dend) {
-// check inp returns in inp 0 = not found
+// check inp, returns in inp =0 no divisor found, =1 in table (is prim)
 // else inp=factor, ld.quot is result of division
   uint8_t tmp;
   uint16_t p=2; 
+  if (inp<2) {
+    inp=1;
+    return;
+  }
   inp= eeprom_read_byte(&epr[1])*256;
   inp+=eeprom_read_byte(&epr[0]);
   while (1) {
@@ -212,7 +213,7 @@ void primUp() {
 }
 
 void primNex10() {
-// finds next 10 prims starting from inp
+// finds next prims starting from inp
   uint8_t  cnt=10;
   uint32_t chkNew; 
   chkNew=inp;
@@ -233,7 +234,7 @@ void primNex10() {
 }
 
 uint32_t primLast() {
-// position pEpo to last entry (FF) and return this value
+// position pEpo to last entry (FF),return this primes value
   uint8_t tmp=7;
   uint32_t chk; 
   pEpo=1;
@@ -248,11 +249,12 @@ uint32_t primLast() {
     }
     chk+=tmp;
   }
+  msg(stLast,chk);
   return chk;
 }
 
 void primLoop(uint16_t anz){
-// add next anz prims to this EPROM(only if first is 2!)
+// add next anz prims to this EPROM(only works if first is 2!)
   uint32_t chkNew,chk; 
   chk=primLast();
   chkNew=chk;
@@ -262,9 +264,11 @@ void primLoop(uint16_t anz){
     msg(stChkN,chkNew);
     prim(chkNew); // 
     if (inp==0) {// is prim
-       eeprom_update_byte(&epr[pEpo],chkNew-chk) ; // Delta > 5  
+       anz--;
+       eeprom_update_byte(&epr[pEpo],chkNew-chk) ; // Delta  
        pEpo++;
        msg(stPe,pEpo);
+       chk=chkNew;
        eeprom_update_byte(&epr[pEpo],0xFF) ; // EOF
        if (pEpo>E2END-2) { //Angst
         return;
@@ -274,11 +278,20 @@ void primLoop(uint16_t anz){
 }
 
 void primAdd(){
-// add inp as last to this EPROM
-  uint32_t chkNew,chk; 
+// add inp as last to this EPROM, danger!
+  uint32_t chkNew,chk;
+  int32_t dif; 
   chkNew=inp;
   chk=primLast();
-  eeprom_update_byte(&epr[pEpo],chkNew-chk) ; // Delta > 5  
+  if (pEpo>E2END-2) { //Angst
+        return;
+  }
+  dif=chkNew-chk;
+  if ((dif<2) || (dif>0xFF)){
+       msg(stDif,dif);
+       return;
+  }
+  eeprom_update_byte(&epr[pEpo],(uint8_t)dif) ; // Delta 
   pEpo++;
   eeprom_update_byte(&epr[pEpo],0xFF) ; // EOF
 }
@@ -302,7 +315,7 @@ void primCheck() {
 }
 
 void primInfo(uint16_t anf){
-// schickt start und max 20 werte ab anf
+// sends first and max 20 primes from anf
   uint8_t tmp=7;
   uint8_t sent=20;
   uint8_t max=0;
@@ -383,6 +396,9 @@ void doCmd( char tmp) {
    case 'b':  
       inp=418609; // 647*647
       break;
+   case 'c':  
+      inp=4294967295;
+      break;
    case 'd':  // uups?
    case 'e':  
       break;
@@ -392,7 +408,7 @@ void doCmd( char tmp) {
    case 'i':  
       primInfo(inp);
       break;
-   case 'l':  
+   case 'l':  // inp neue primes in 
       primLoop(inp);
       break;
    case 'n':  
@@ -494,22 +510,44 @@ Schaltung: tinies 45/85
     PB4 Eingang Pullup
  
 Befehle:
-  Ziffern, Kleinbuchstaben siehe doCmd
+  Ziffern dann Kleinbuchstabe siehe doCmd
   Token #  falls was zu schicken ersetze; hi bit gesetzt. Siehe ISR(USI_OVF_vect)
   ABC..   Zuweisung Nummer
   größer Asc 127 ist Rückmeldung zum master, wird ignoriert
      
-LED stetig an   USI ctr !=0 (out of sync?)
-    blinkt   aktiv
+LED:
+  stetig an:            USI ctr !=0 (out of sync?)
+  aus:                  inaktiv
+  blinkt etwa 0.5/sec:  aktiv
+  blinkt etwa 2/sec:    hat was zu sagen
+  blinkt panisch:       overrun, zu sendende Daten für immer verloren (x to clear)
 
 Fuses: E2 D5 FE = SELFPRGEN (nur so), SPIEN, EESAVE, BODLEVEL 2.7, CKSEL Int 8MHz 
 
-Primes: 
+Primes:                        9   6   3
 List of primes           1 000 000 000 000
-  Unsigned long              4.294.967.295 -> 65.536
+  Signed long                2.147.483.647 -> 
   2..1579-> erkennt alle bis     2.493.241
   2..1579-> erkennt alle bis     2.493.241
 
+Setup:
+  die ersten 253 primes in Re1
+    A0d1e
+    0ui         ->  2 3 5 Pe= 4 Dif= 2
+    999l240i    -> ... 1607 Pe= 254 Dif= 34 
+    x           to clear overrun
+  Teste mit 1607*1601*593 = 1.525.674.551
+    250i        -> ... 1597 1601 1607 Pe= 254 Dif= 34
+    1525674551p -> Erg= 593 Quo= 2572807   (quo jetzt in inp)
+    p           -> Erg= 1601 Quo= 1607
+    p           -> Erg= 1607 Quo= 1
+  Nächsten 10 unbekannten primes grösser Zahl(von Re1)
+    1607n       -> 1607n1613a1619a1621a...1693a
+  Zu Re2 und erste Prim aufsetzen
+    0d2e
+    1613u0i     -> 1613 Pe= 2 Dif=
+    
+    1693n       -> 1693n1697a1699a1709a...1759a
 
 
 */

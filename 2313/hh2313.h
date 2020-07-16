@@ -11,12 +11,13 @@
 #include <stdbool.h>
 #include <avr/pgmspace.h>
 
-
+ 
 
 
 // 9600 19200 38400
-#define USART_BAUDRATE 19200 
+#define USART_BAUDRATE 38400 
 #define UBRR_VALUE (((F_CPU/(USART_BAUDRATE*16UL)))-1)
+
 
 void serial_setup(){
 	UBRRL = UBRR_VALUE & 255; 
