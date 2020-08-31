@@ -7,12 +7,14 @@
  
  */
 
-#define LEDNUM 240           // Number of LEDs in stripe
-#define ws2812_port PORTB   // Data port register, adapt setup() if changed 
-#define ws2812_pin 2        // data out pin, adapt setup() if changed
-#define ws2812_con 10       // Number of ws Out
+// Hardware
+#define ws2812_port PORTD   // Data port register, adapt setup() if changed 
+#define ws2812_pin 7        // data out pin, adapt setup() if changed
+#define ws2812_con 7        // arduino number of ws Out 
 #define tsop_con  2         // Number of tsop in 
-#define voltage_con  5        // Voltage control LED power
+#define voltage_con  5      // Voltage control LED power
+
+#define LEDNUM 240           // Number of LEDs in stripe
 #define ARRAYLEN LEDNUM *3  // 
 #define TOPX 16
 #define TOPY  5
