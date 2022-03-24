@@ -1,0 +1,11 @@
+const char txAttach[] PROGMEM = "Attach";
+const char txDetach[] PROGMEM = "Detach";
+const char txEndprog[] PROGMEM = "Endprog";
+const char txReserved[] PROGMEM = "Reserved";
+const char txReturn[] PROGMEM = "Return";
+const char txSetVar1[] PROGMEM = "SetVar1 ";
+const char txSetVar2[] PROGMEM = "SetVar2 ";
+const char txTracOff[] PROGMEM = "Trace off";
+const char txTracOn[] PROGMEM = "Trace on";
+const char txVerboOff[] PROGMEM = "Verbose off";
+const char txVerboOn[] PROGMEM = "Verbose on";
