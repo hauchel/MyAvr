@@ -9,10 +9,12 @@
 #include "helper.h"
 
 const byte servPin = 9;
-const byte anzIn = 5;
-const byte inMap[anzIn] = {8,    A3,   A2,   A1,   A0};
-const bool inInv[anzIn] = {true, true, true, true, false};
+const byte anzIn = 7;
+const byte inMap[anzIn] = {8,    A3,   A2,   A1,   A0,    7,    6};
+const bool inInv[anzIn] = {true, true, true, true, false, true, true};
 bool inVal[anzIn];
+const byte anzOut = 4;
+const byte outMap[anzOut] = {13, 12, 11, 10};
 
 bool verbo = true;
 bool trace = true;
@@ -37,6 +39,8 @@ unsigned long stepTim[progLen]; // set on entry
 const byte anzStack = 16;
 byte var1[anzStack];
 byte var2[anzStack];
+byte actIn5[anzStack];
+byte actIn6[anzStack];
 byte progpS[anzStack];
 byte prognumS[anzStack];
 byte prognum;
@@ -106,7 +110,8 @@ void decodProg(char tx[40], byte p) {
       else sprintf(tx, "%s %2u ", "DJNZ 2 to",  lo - 8);
       return;
     case 8:   //
-      sprintf(tx, "%s %4u ", "Delay", 100 * lo);
+      if (lo < 8)    sprintf(tx, "%s %2u ", "ActIn5 on",  lo);
+      else sprintf(tx, "%s %2u ", "ActIn6 on",  lo - 8);
       return;
     case 0xA:   //
       if (lo < 8)    sprintf(tx, "%s %2u ", "Label",  lo);
@@ -118,11 +123,14 @@ void decodProg(char tx[40], byte p) {
     case 0xE:   //
       beflen = 2;
       switch (lo) {
+        case 0:
+          sprintf(tx, "%s %3u ", "Delay", 10 * prog[p + 1]);
+          break;
         case 1:
-          sprintf(tx, "%s %3u ", "SetVar1 ", prog[p + 1]);
+          sprintf(tx, "%s %3u ", "SetVar1", prog[p + 1]);
           break;
         case 2:
-          sprintf(tx, "%s %3u ", "SetVar2 ", prog[p + 1]);
+          sprintf(tx, "%s %3u ", "SetVar2", prog[p + 1]);
           break;
         default:
           sprintf(tx, "%s %2u ", "Invalid Ex",  lo);
@@ -172,11 +180,11 @@ void delatProg() {
 }
 
 void showProg() {
-  char str[50];
+  char str[60];
   char txt[40];
   char ind[3];
   unsigned long mess0;
-  uint16_t mw;
+  uint16_t mw, dau;
   Serial.println();
   if (progp >= progLen) progp = progLen - 1; //limit
   mess0 = stepTim[0];
@@ -188,12 +196,13 @@ void showProg() {
       strcpy(ind, "  ");
     }
     if (mess) {
+      dau = stepTim[i + 1] - stepTim[i];
       if (stepTim[i] == 0) {
         mw = 0;
       } else {
         mw = stepTim[i] - mess0;
       }
-      sprintf(str, "%2u  %02X %3u %3s  %-20s %6u", i, prog[i], prog[i], ind, txt, mw);
+      sprintf(str, "%2u  %02X %3u %3s  %-20s %6u  %6u", i, prog[i], prog[i], ind, txt, dau, mw);
     }  else {
       sprintf(str, "%2u  %02X %3u %3s  %-20s", i, prog[i], prog[i], ind, txt);
     }
@@ -243,7 +252,7 @@ void showStack(byte dep) {
     } else {
       strcpy(ind, "  ");
     }
-    sprintf(str, "%2u  %3s  %2u %2u  %3u %3u", i, ind,  prognumS[i], progpS[i], var1[i], var2[i]);
+    sprintf(str, "%2u  %3s  %2u %2u  %3u %3u  %1u  %1u", i, ind,  prognumS[i], progpS[i], var1[i], var2[i],actIn5[i],actIn6[i]);
     Serial.println(str);
   }
 }
@@ -285,6 +294,18 @@ byte exepDjnz(byte lo) {
   return 0;
 }
 
+byte exepActin(byte lo) {
+  if (lo < 8) {
+    if (lo >= anzIn) return 12;
+    actIn5[stackp] = lo;
+  } else {
+    lo = lo - 8;
+    if (lo >= anzIn) return 12;
+    actIn6[stackp] = lo;
+  }
+  return 0;
+}
+
 byte exepWait(byte lo, bool tf) {
   if (lo >= anzIn) return 12;
   if (inVal[lo] != tf)   progp -= 1; // keep position
@@ -296,7 +317,6 @@ byte exepSkip(byte lo, bool tf) {
   if (inVal[lo] == tf)   progp += 1;
   return 0;
 }
-
 
 byte exepSpecial(byte lo) {
   switch (lo) {
@@ -321,18 +341,21 @@ byte exepSpecial(byte lo) {
 
 byte exep2byte(byte lo) {
   switch (lo) {
+    case 0:   //
+      delay(10 * prog[progp] - 1);
+      break;
     case 1:   //
       var1[stackp] = prog[progp];
-      progp++;
-      return 0;
+      break;
     case 2:   //
       var2[stackp] = prog[progp];
-      progp++;
-      return 0;
+      break;
     default:
       msgF(F("twobyte not implemented "), lo);
+      return 1;
   }
-  return 1;
+  progp++;
+  return 0;
 }
 
 byte exepSetPos(byte lo) {
@@ -357,16 +380,31 @@ byte exepSetPos(byte lo) {
 }
 
 byte execOne() {
-  byte lo;
-  byte hi;
+  byte lo, hi;
   if (progp >= progLen) {
     msgF(F(" ExecProg progp? "), progp);
     return 10;
   }
+
+  if (actIn5[stackp] > 0) {
+    if (inVal[actIn5[stackp]]) {
+      actIn5[stackp] = 0;
+      return exepJumto(0xA5);
+    }
+  }
+  if (actIn6[stackp] > 0) {
+    if (inVal[actIn6[stackp]]) {
+      actIn6[stackp] = 0;
+      return exepJumto(0xA6);
+    }
+  }
+
+
   lo = prog[progp];
   progp++;
   hi = lo >> 4;
   lo = lo & 0x0F;
+
   switch (hi) {
     case 0:   //
     case 1:   //
@@ -384,9 +422,8 @@ byte execOne() {
       return exepSkip(lo, false);
     case 7:   //
       return exepDjnz(lo);
-    case 8:   //
-      delay(100 * lo);
-      return 0;
+    case 8:   //obsolete
+      return exepActin(lo);
     case 0xA:   //
       return exepJump(lo);
     case 0xB:   //
@@ -437,6 +474,8 @@ byte execProg() {
       if (stackp >= anzStack) return 25;
       var1[stackp] = var1[stackp - 1];
       var2[stackp] = var2[stackp - 1];
+      actIn5[stackp] = 0;
+      actIn6[stackp] = 0;
       prognumS[stackp] = prognum;
       readProg(prognum);
       err = 0;
@@ -529,7 +568,7 @@ bool doRaute(byte tmp) {
       setServo(tmp - '0');
     }  else {
       raute = false;
-      if (tmp=='#') return true;
+      if (tmp == '#') return true;
     }
   }
   return raute;
@@ -633,6 +672,7 @@ void doCmd(byte tmp) {
       break;
     case 'W':   //
       writeProg(inp);
+      prognum = inp;
       break;
     case 'x':   //
       zwi = execOne();
