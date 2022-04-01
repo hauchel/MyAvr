@@ -1,34 +1,35 @@
 // Bahnsteuerung mit MiniControl
 // SCL   A5 yell    1
 // SDA   A4 grn     2
-// Servo  9 ws
-// inmap A0
+
 #include <Servo.h>
 #include <EEPROM.h>
 #include "texte.h"
 #include "helper.h"
-
-const byte servPin = 9;
-const byte anzIn = 7;
-const byte inMap[anzIn] = {8,    A3,   A2,   A1,   A0,    7,    6};
-const bool inInv[anzIn] = {true, true, true, true, false, true, true};
+#include "timer2.h"
+// very careful, do not map same pin to different areas: also see 3 ste Pins  7,8, in timer2.h
+const byte anzServ = 3; // Serv 0 is always stepper!
+const byte servMap[anzServ] = {0, 5, 6};
+const byte anzIn = 4;
+const byte inMap[anzIn] = { A3,   A2,   A1,   A0};
+const bool inInv[anzIn] = {true, true, true, true};
 bool inVal[anzIn];
-const byte anzOut = 4;
-const byte outMap[anzOut] = {13, 12, 11, 10};
+const byte anzOut = 3;
+const byte outMap[anzOut] = {13, 12, 11};
 
 bool verbo = true;
 bool trace = true;
 bool raute = false;
 byte traceLin;    // avoid many trace outputs during wait
 
-uint16_t serpos;
+uint16_t serpos[anzServ];
+byte sersel = 0; //sel Servo
 byte posp = 0;
 struct epromData {
-  byte pos[10];
-  int16_t wert[10];
+  uint16_t pos[anzServ][10];
 };
 epromData mypos; //not more than 64 as start at
-const uint16_t epromAdr = 960;
+const uint16_t epromAdr = 900;
 
 const byte progLen = 32;
 byte prog[progLen];
@@ -56,13 +57,44 @@ uint16_t messAnz = 50;
 uint16_t messCnt;
 uint16_t messPtr;
 
-Servo myservo;
+Servo myservo[anzServ];
+
+
+void writeServo(byte senum, uint16_t wert) {
+  if (senum == 0) {
+    stePosition(wert);
+  } else {
+    myservo[senum].write(wert);
+  }
+}
+
+void detachServo(byte senum) {
+  if (senum == 0) {
+    digitalWrite(steEna, HIGH);
+  } else {
+    myservo[senum].detach();
+  }
+}
+
+void attachServo(byte senum, byte port) {
+  if (senum == 0) {
+    digitalWrite(steEna, LOW);
+  } else {
+    myservo[senum].attach(port);
+  }
+}
+
+void timServo(byte wert) {
+  OCR2A = wert;
+}
 
 void showPos() {
   char str[50];
   Serial.println();
+  sprintf(str, "akt  %5u  %5u  %5u", serpos[0], serpos[1], serpos[2]);
+  Serial.println(str);
   for (byte i = 0; i < 10; i++) {
-    sprintf(str, "%2u   %4u   %6d", i, mypos.pos[i], mypos.wert[i]);
+    sprintf(str, "%2u   %5u  %5u  %5u", i, mypos.pos[0][i], mypos.pos[1][i], mypos.pos[2][i]);
     Serial.println(str);
   }
 }
@@ -74,15 +106,20 @@ void decodProg(char tx[40], byte p) {
   beflen = 1;
   switch (hi) {
     case 0:   //
-    case 1:   //
       strcpy_P(tx, txReserved);
+      return;
+    case 1:   //
+      sprintf(tx, "%s %2u", "Sel Serv", lo);
       return;
     case 2:   //
       if (lo < 10) {
-        sprintf(tx, "%s %2u (%3u) ", "Set Pos", lo, mypos.pos[lo]);
+        sprintf(tx, "%s %2u ", "Set Pos", lo);
         return;
       }
       switch (lo) {
+        case 0xD:
+          strcpy_P(tx, txStepDone);
+          break;
         case 0xE:
           strcpy_P(tx, txAttach);
           break;
@@ -243,7 +280,7 @@ void writeProg(uint16_t  p) {
 void showStack(byte dep) {
   char str[50];
   char ind[3];
-  if (dep == 0) dep = anzStack;
+  //if (dep == 0) dep = anzStack;
   if (dep > anzStack) dep = anzStack;
   Serial.println();
   for (byte i = 0; i < dep; i++) {
@@ -252,7 +289,7 @@ void showStack(byte dep) {
     } else {
       strcpy(ind, "  ");
     }
-    sprintf(str, "%2u  %3s  %2u %2u  %3u %3u  %1u  %1u", i, ind,  prognumS[i], progpS[i], var1[i], var2[i],actIn5[i],actIn6[i]);
+    sprintf(str, "%2u  %3s  %2u %2u  %3u %3u  %1u  %1u", i, ind,  prognumS[i], progpS[i], var1[i], var2[i], actIn5[i], actIn6[i]);
     Serial.println(str);
   }
 }
@@ -276,6 +313,18 @@ byte exepJump(byte lo) {
   return exepJumto(lbl);
 }
 
+byte exepActin(byte lo) {
+  if (lo < 8) {
+    if (lo >= anzIn) return 12;
+    actIn5[stackp] = lo;
+  } else {
+    lo = lo - 8;
+    if (lo >= anzIn) return 12;
+    actIn6[stackp] = lo;
+  }
+  return 0;
+}
+
 byte exepDjnz(byte lo) {
   byte lbl;
   if (lo < 8) {
@@ -290,18 +339,6 @@ byte exepDjnz(byte lo) {
       lbl = lo + 0xA0 - 8;
       return exepJumto(lbl);
     }
-  }
-  return 0;
-}
-
-byte exepActin(byte lo) {
-  if (lo < 8) {
-    if (lo >= anzIn) return 12;
-    actIn5[stackp] = lo;
-  } else {
-    lo = lo - 8;
-    if (lo >= anzIn) return 12;
-    actIn6[stackp] = lo;
   }
   return 0;
 }
@@ -358,19 +395,30 @@ byte exep2byte(byte lo) {
   return 0;
 }
 
+byte exepSelServo(byte lo) {
+  if (lo >= anzServ) {
+    return 13;
+  }
+  sersel = lo;
+  return 0;
+}
+
 byte exepSetPos(byte lo) {
   if (lo < 10) {
     posp = lo; //verwirrt?
-    serpos = mypos.pos[lo];
-    myservo.write(serpos);
+    serpos[sersel] = mypos.pos[sersel][lo];
+    writeServo(sersel, serpos[sersel]);
     return 0;
   }
   switch (lo) {
-    case 0xF:   //
-      myservo.detach();
+    case 0xD:   // wait count 0
+      if (tim2Count>0) progp-=1;
       break;
     case 0xE:   //
-      myservo.attach(servPin);
+      attachServo(sersel, servMap[sersel]);
+      break;
+    case 0xF:   //
+      detachServo(sersel);
       break;
     default:
       msgF(F("Setpos not implemented "), lo);
@@ -407,9 +455,10 @@ byte execOne() {
 
   switch (hi) {
     case 0:   //
-    case 1:   //
       msgF(F("Reserved "), hi);
       return 1;
+    case 1:   //
+      return exepSelServo(lo);
     case 2:   //
       return exepSetPos(lo);
     case 3:
@@ -519,9 +568,7 @@ void info(byte sta) {
   }
   Serial.println();
   showStack(sta);
-  msgF(F("serpos"), serpos);
   showPos();
-
 }
 
 void einles() {
@@ -542,8 +589,9 @@ void prompt() {
     Serial.print("#");
     return;
   }
-  Serial.print(posp);
-  Serial.print(">");
+  char str[50];
+  sprintf(str, "%2u/%1u>", sersel, posp);
+  Serial.print(str);
 }
 
 void redraw() {
@@ -552,13 +600,17 @@ void redraw() {
   showProg();
 }
 
-// Docmd helper
+void selectServo(byte b) {
+  if (b >= anzServ) b = anzServ - 1;
+  sersel = b;
+}
+
 void setServo(byte p) {
   if (p < 10) {
     posp = p;
-    msgF(F("Posi"), mypos.pos[p]);
-    serpos = mypos.pos[posp];
-    myservo.write(serpos);
+    msgF(F("Posi"), mypos.pos[sersel][p]);
+    serpos[sersel] = mypos.pos[sersel][posp];
+    writeServo(sersel, serpos[sersel]);
   } else msgF(F("Invalid Position "), p);
 }
 
@@ -583,7 +635,7 @@ void doCmd(byte tmp) {
   switch (tmp) {
     case 'a':   //
       prlnF(F("attached"));
-      myservo.attach(servPin);
+      attachServo(sersel, servMap[sersel]);
       break;
     case 'b':   //
       showProgX();
@@ -597,7 +649,11 @@ void doCmd(byte tmp) {
       break;
     case 'd':   //
       prlnF(F("detached"));
-      myservo.detach();
+      detachServo(sersel);
+      break;
+    case 'e':   //
+      selectServo(inp);
+      msgF(F("Servo is "), sersel);
       break;
     case 'f':   //
       prlnF(F("Fetch"));
@@ -614,6 +670,10 @@ void doCmd(byte tmp) {
       break;
     case 'i':   //
       info(inp);
+      break;
+    case 'j':   //
+      timServo(inp);
+      msgF(F("OCR2A is "), OCR2A);
       break;
     case 'l':   //
       break;
@@ -633,9 +693,9 @@ void doCmd(byte tmp) {
     case 'o':   //
       break;
     case 'p':   //
-      serpos = inp;
-      msgF(F("Servo"), serpos);
-      myservo.write(serpos);
+      serpos[sersel] = inp;
+      msgF(F("Servo"), serpos[sersel]);
+      writeServo(sersel, serpos[sersel]);
       break;
     case 'r':   //
       progp = 0;
@@ -643,7 +703,7 @@ void doCmd(byte tmp) {
       showProg();
       break;
     case 's':   //
-      mypos.pos[posp] = serpos;
+      mypos.pos[sersel][posp] = serpos[sersel];
       showPos();
       break;
     case 't':   //
@@ -667,6 +727,15 @@ void doCmd(byte tmp) {
         prlnF(F("Verbose aus"));
       }
       break;
+    case 'V':   //
+      steDirPlus = !steDirPlus;
+      if (steDirPlus) {
+        prlnF(F("steDirPlus true"));
+      } else {
+        prlnF(F("steDirPlus falses"));
+      }
+      break;
+
     case 'w':   //
       writeProg(prognum);
       break;
@@ -684,11 +753,14 @@ void doCmd(byte tmp) {
       redraw();
       break;
     case '+':   //
-      serpos += 5;
-      msgF(F("Servo"), serpos);
-      myservo.write(serpos);
+      serpos[sersel] += 5;
+      msgF(F("Servo"), serpos[sersel]);
+      writeServo(sersel, serpos[sersel]);
       break;
     case '#':   //
+      setServo(inp);
+      break;
+    case 39:   // shift #
       raute = true;
       setServo(inp);
       break;
@@ -701,9 +773,9 @@ void doCmd(byte tmp) {
       redraw();
       break;
     case '-':   //
-      serpos -= 5;
-      msgF(F("Servo"), serpos);
-      myservo.write(serpos);
+      serpos[sersel] -= 5;
+      msgF(F("Servo"), serpos[sersel]);
+      writeServo(sersel, serpos[sersel]);
       break;
     case 193:   //up
       progp -= 1;
@@ -732,7 +804,11 @@ void setup() {
   for (byte i = 0; i < anzIn; i++) {
     pinMode(inMap[i], INPUT_PULLUP);
   }
+  for (byte i = 0; i < anzOut; i++) {
+    pinMode(outMap[i], OUTPUT);
+  }
   EEPROM.get(epromAdr, mypos);
+  steSetup();
   prompt();
 }
 
