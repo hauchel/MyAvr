@@ -3,7 +3,7 @@ byte vt100 = 0; // ESC (1) 91 (2) x+128
 uint16_t inp;
 bool inpAkt;
 unsigned long currMs, prevMs = 0;
-unsigned long tickMs=10;
+unsigned long tickMs=50;
 
 // Memory saving helpers
 void prnt(PGM_P p) {

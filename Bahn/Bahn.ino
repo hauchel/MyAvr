@@ -1,37 +1,43 @@
 // Bahnsteuerung mit MiniControl
-// SCL   A5 yell    1
-// SDA   A4 grn     2
+// mit PCA9685
 
-#include <Servo.h>
+//ovres:#include <Servo.h>
+#include <Adafruit_PCA9685.h>
 #include <EEPROM.h>
 #include "texte.h"
 #include "helper.h"
 #include "timer2.h"
-// very careful, do not map same pin to different areas: also see 3 ste Pins  7,8, in timer2.h
-const byte anzServ = 3; // Serv 0 is always stepper!
-const byte servMap[anzServ] = {0, 5, 6};
-const byte anzIn = 4;
-const byte inMap[anzIn] = { A3,   A2,   A1,   A0};
-const bool inInv[anzIn] = {true, true, true, true};
-bool inVal[anzIn];
-const byte anzOut = 3;
+// very careful, do not map same pin to different areas.
+// Also see the 3 ste Pins  7,8,9 in timer2.h
+//  for TWI //  A5 SCL yell   A4 SDA grn
+const byte anzServ = 10; // Serv 0 is always stepper!
+//ovres: const byte servMap[anzServ] = {0, 5, 6};
+const byte anzIn = 5;   // Inputs
+const byte inMap[anzIn] = {2,    A3,   A2,   A1,   A0};
+const bool inInv[anzIn] = {true, true, true, true, true};
+bool inVal[anzIn];      // current value read
+const byte anzOut = 3;  // outputs
 const byte outMap[anzOut] = {13, 12, 11};
+byte delt = 4;
 
 bool verbo = true;
-bool trace = true;
+bool trace = true;    // true: show ececuted command
 bool raute = false;
-byte traceLin;    // avoid many trace outputs during wait
+bool teach = false;   // true: teach-in
+bool dirty = false;   // true: current prog changed
+byte traceLin;        // avoid many trace outputs during wait
 
-uint16_t serpos[anzServ];
-byte sersel = 0; //sel Servo
-byte posp = 0;
+uint16_t serpos[anzServ]; // current position
+bool atdet[anzServ];      // remember attached/detached
+byte sersel = 0;          // selected Servo
+byte posp = 0;            // position
 struct epromData {
   uint16_t pos[anzServ][10];
 };
-epromData mypos; //not more than 64 as start at
-const uint16_t epromAdr = 900;
+epromData mypos;
+const uint16_t epromAdr = 700;// depends on 1024-len(epromData)
 
-const byte progLen = 32;
+const byte progLen = 48;
 byte prog[progLen];
 byte progp = 0;
 byte beflen; // sick, set by decodeprog
@@ -51,37 +57,70 @@ const byte minp = 5;
 const byte maxp = 180;
 
 bool mess = false;
-const uint16_t messSiz = 50;
+const uint16_t messSiz = 20;
 unsigned long messTim[messSiz];
-uint16_t messAnz = 50;
+uint16_t messAnz = 20;
 uint16_t messCnt;
 uint16_t messPtr;
 
-Servo myservo[anzServ];
+bool movOn;
+bool movSet;        // if true next # is slow
+uint16_t movCurr;
+uint16_t movEnd;
+int16_t movDelt;
 
+//ovres: Servo myservo[anzServ];
+//use default address 0x40:
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 void writeServo(byte senum, uint16_t wert) {
+  if (wert > mypos.pos[senum][9]) {
+    wert = mypos.pos[senum][9];
+  }
+  if (wert < mypos.pos[senum][0]) {
+    wert = mypos.pos[senum][0];
+  }
+  serpos[senum] = wert;
   if (senum == 0) {
     stePosition(wert);
   } else {
-    myservo[senum].write(wert);
+    if (atdet[senum]) {
+      pwm.setPWM(senum, 0, wert);
+      //ovres: myservo[senum].write(wert);
+      if (verbo) msgF(F("writeServo"), wert);
+    } else {
+      if (verbo) msgF(F("Servo detached"), wert);
+    }
+
   }
 }
 
+uint16_t readServo(byte senum) {
+  if (senum == 0) {
+    return stePos;
+  } else {
+    //ovres: return myservo[senum].read();
+    return serpos[senum];
+  }
+}
 void detachServo(byte senum) {
   if (senum == 0) {
     digitalWrite(steEna, HIGH);
   } else {
-    myservo[senum].detach();
+    //ovres: myservo[senum].detach();
+    pwm.setPWM(senum, 0, 0);
   }
+  atdet[senum] = false;
 }
 
-void attachServo(byte senum, byte port) {
+void attachServo(byte senum) {
   if (senum == 0) {
     digitalWrite(steEna, LOW);
   } else {
-    myservo[senum].attach(port);
+    //ovres: myservo[senum].attach(servMap[senum]);
+    pwm.setPWM(senum, 0, serpos[senum]);
   }
+  atdet[senum] = true;
 }
 
 void timServo(byte wert) {
@@ -91,15 +130,17 @@ void timServo(byte wert) {
 void showPos() {
   char str[50];
   Serial.println();
-  sprintf(str, "akt  %5u  %5u  %5u", serpos[0], serpos[1], serpos[2]);
+  sprintf(str, "akt  %5u ", readServo(sersel));
   Serial.println(str);
   for (byte i = 0; i < 10; i++) {
-    sprintf(str, "%2u   %5u  %5u  %5u", i, mypos.pos[0][i], mypos.pos[1][i], mypos.pos[2][i]);
+    sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
     Serial.println(str);
   }
 }
 
 void decodProg(char tx[40], byte p) {
+  // annoying to save RAM
+  char str[20];
   byte lo, hi;
   lo = prog[p] & 0x0F;
   hi = prog[p] >> 4;
@@ -117,6 +158,12 @@ void decodProg(char tx[40], byte p) {
         return;
       }
       switch (lo) {
+        case 0xA:
+          strcpy_P(tx, txMovOn);
+          break;
+        case 0xB:
+          strcpy_P(tx, txStepZero);
+          break;
         case 0xD:
           strcpy_P(tx, txStepDone);
           break;
@@ -131,16 +178,20 @@ void decodProg(char tx[40], byte p) {
       }
       return;
     case 3:   //
-      sprintf(tx, "%s %2u ", "Wait True", lo);
+      strcpy_P(str, txWaitT);
+      sprintf(tx, "%s %2u ", str, lo);
       return;
     case 4:   //
-      sprintf(tx, "%s %2u ", "Wait False", lo);
+      strcpy_P(str, txWaitF);
+      sprintf(tx, "%s %2u ", str, lo);
       return;
     case 5:   //
-      sprintf(tx, "%s %2u ", "Skip if True", lo);
+      strcpy_P(str, txSkipT);
+      sprintf(tx, "%s %2u ", str, lo);
       return;
     case 6:   //
-      sprintf(tx, "%s %2u ", "Skip if False", lo);
+      strcpy_P(str, txSkipF);
+      sprintf(tx, "%s %2u ", str, lo);
       return;
     case 7:   //
       if (lo < 8)    sprintf(tx, "%s %2u ", "DJNZ 1 to",  lo);
@@ -161,17 +212,24 @@ void decodProg(char tx[40], byte p) {
       beflen = 2;
       switch (lo) {
         case 0:
-          sprintf(tx, "%s %3u ", "Delay", 10 * prog[p + 1]);
-          break;
+          strcpy_P(str, txDelay);
+          sprintf(tx, "%s %3u ", txDelay, 10 * prog[p + 1]);
+          return;
         case 1:
-          sprintf(tx, "%s %3u ", "SetVar1", prog[p + 1]);
+          strcpy_P(str, txVar1);
           break;
         case 2:
-          sprintf(tx, "%s %3u ", "SetVar2", prog[p + 1]);
+          strcpy_P(str, txVar2);
+          break;
+        case 5:
+          strcpy_P(str, txStepos);
           break;
         default:
-          sprintf(tx, "%s %2u ", "Invalid Ex",  lo);
+          strcpy_P(str, txInvalid);
+          sprintf(tx, "%s %2u ", str,  lo);
+          return;
       }
+      sprintf(tx, "%s %3u ", str, prog[p + 1]);
       return;
     case 0xF:   //
       switch (lo) {
@@ -202,6 +260,7 @@ void insProg(uint16_t was) {
     msgF(F("ProgP"), progp);
     return;
   }
+  dirty = true;
   for (byte i = progLen - 1; i > progp; i--) {
     prog[i] = prog[i - 1];
   }
@@ -214,6 +273,7 @@ void delatProg() {
     prog[i] = prog[i + 1];
   }
   prog[progLen - 1] = 255;
+  dirty = true;
 }
 
 void showProg() {
@@ -260,20 +320,28 @@ void showProgX() {
   Serial.println();
 }
 
-void readProg(uint16_t  p) {
+bool readProg(uint16_t  p, bool cleanonly) {
+  if (dirty and cleanonly) {
+    msgF(F("Prog dirty, use R"), p);
+    return false;
+  }
   prognum = p;
-  p = p * 32;
+  progp = 0;
+  p = p * progLen;
   EEPROM.get(p, prog);
+  dirty = false;
   msgF(F(" Prog read Adr="), p);
+  return true;
 }
 
 void writeProg(uint16_t  p) {
-  p = p * 32;
-  if (p > 0) {
+  p = p * progLen;
+  if ((p + progLen) < epromAdr) {
     EEPROM.put(p, prog);
     msgF(F(" Prog write Adr="), p);
+    dirty = false;
   } else {
-    msgF(F("Do not Prog write null"), p);
+    msgF(F("epromAdr! No Prog write "), p);
   }
 }
 
@@ -387,6 +455,9 @@ byte exep2byte(byte lo) {
     case 2:   //
       var2[stackp] = prog[progp];
       break;
+    case 5:   // stepper
+      stePos = prog[progp];
+      break;
     default:
       msgF(F("twobyte not implemented "), lo);
       return 1;
@@ -406,16 +477,25 @@ byte exepSelServo(byte lo) {
 byte exepSetPos(byte lo) {
   if (lo < 10) {
     posp = lo; //verwirrt?
-    serpos[sersel] = mypos.pos[sersel][lo];
-    writeServo(sersel, serpos[sersel]);
+    if (movSet) {
+      startMov(lo);
+    } else {
+      writeServo(sersel, mypos.pos[sersel][lo]);
+    }
     return 0;
   }
   switch (lo) {
+    case 0xA:   //
+      movSet = true;
+      break;
+    case 0xB:   // Stepp to 0
+      stePos = 0;
+      break;
     case 0xD:   // wait count 0
-      if (tim2Count>0) progp-=1;
+      if ((tim2Count > 0) or (movOn))  progp -= 1;
       break;
     case 0xE:   //
-      attachServo(sersel, servMap[sersel]);
+      attachServo(sersel);
       break;
     case 0xF:   //
       detachServo(sersel);
@@ -433,7 +513,6 @@ byte execOne() {
     msgF(F(" ExecProg progp? "), progp);
     return 10;
   }
-
   if (actIn5[stackp] > 0) {
     if (inVal[actIn5[stackp]]) {
       actIn5[stackp] = 0;
@@ -446,7 +525,6 @@ byte execOne() {
       return exepJumto(0xA6);
     }
   }
-
 
   lo = prog[progp];
   progp++;
@@ -475,7 +553,8 @@ byte execOne() {
       return exepActin(lo);
     case 0xA:   //
       return exepJump(lo);
-    case 0xB:   //
+    case 0xB:   // call
+      if (dirty) return 26;
       prognum = lo;
       return 6;
     case 0xE:   //
@@ -500,9 +579,16 @@ byte execProg() {
     stepTim[i] = 0;
   }
   Serial.println();
+
   while (err == 0) {
     if (Serial.available() > 0) return 5;
     einles();
+
+    currMs = millis();
+    if (currMs - prevMs >= tickMs) {
+      if (movOn) handleMov();
+      prevMs = currMs;
+    }
 
     if (progp != traceLin) {
       traceLin = progp;
@@ -515,10 +601,10 @@ byte execProg() {
         Serial.println(str);
       }
     }
+
     err = execOne();
     if (err == 6) { // push (prognum set by execOne)
       progpS[stackp] = progp;
-      progp = 0;
       stackp++;
       if (stackp >= anzStack) return 25;
       var1[stackp] = var1[stackp - 1];
@@ -526,19 +612,56 @@ byte execProg() {
       actIn5[stackp] = 0;
       actIn6[stackp] = 0;
       prognumS[stackp] = prognum;
-      readProg(prognum);
+      readProg(prognum, true); // dirty already checked by execone
       err = 0;
     }
     if (err == 9) { //pop
       if (stackp == 0) return 9;
       stackp--;
       prognum = prognumS[stackp] ;
+      readProg(prognum, false); // egal
       progp = progpS[stackp] ;
-      readProg(prognum);
       err = 0;
     }
   } // while
   return err;
+}
+
+void handleMov() {
+  // called change current servo
+  if (movDelt > 0) {
+    if (movCurr < movEnd) {
+      movCurr += movDelt;
+      writeServo(sersel, movCurr);
+    } else {
+      movOn = false;
+      writeServo(sersel, movEnd);
+    }
+
+  } else {
+    if (movCurr > movEnd) {
+      movCurr += movDelt;
+      writeServo(sersel, movCurr);
+    } else {
+      movOn = false;
+      writeServo(sersel, movEnd);
+    }
+  }
+}
+
+void startMov(byte z) {
+  char str[60];
+  movSet = false;
+  movCurr = serpos[sersel];
+  movEnd = mypos.pos[sersel][z];
+  if (movEnd > movCurr) {
+    movDelt = delt;
+  } else {
+    movDelt = -delt;
+  }
+  sprintf(str, "Mov from %4u to %4u Delt %2d", movCurr, movEnd, movDelt);
+  Serial.println(str);
+  movOn = true;
 }
 
 void showMess() {
@@ -559,7 +682,7 @@ void showTims() {
 
 void info(byte sta) {
   Serial.println();
-  for (byte i = 1; i < anzIn; i++) {  // ignore 0
+  for (byte i = 0; i < anzIn; i++) {
     if (inVal[i]) {
       Serial.print("T ");
     } else {
@@ -568,6 +691,7 @@ void info(byte sta) {
   }
   Serial.println();
   showStack(sta);
+
   showPos();
 }
 
@@ -585,18 +709,22 @@ void startMess() {
 }
 
 void prompt() {
+  char str[50];
   if (raute) {
     Serial.print("#");
     return;
   }
-  char str[50];
-  sprintf(str, "%2u/%1u>", sersel, posp);
+  if (teach) {
+    sprintf(str, "(%2u) %2u/%1u>", progp, sersel, posp);
+  } else {
+    sprintf(str, "%2u/%1u>", sersel, posp);
+  }
   Serial.print(str);
 }
 
 void redraw() {
   vt100Clrscr();
-  msgF(F("Prognum"), prognum);
+  msgF(F("Program"), prognum);
   showProg();
 }
 
@@ -608,9 +736,16 @@ void selectServo(byte b) {
 void setServo(byte p) {
   if (p < 10) {
     posp = p;
-    msgF(F("Posi"), mypos.pos[sersel][p]);
-    serpos[sersel] = mypos.pos[sersel][posp];
-    writeServo(sersel, serpos[sersel]);
+    if (mypos.pos[sersel][p] <= mypos.pos[sersel][9]) {
+      msgF(F("Posi"), mypos.pos[sersel][p]);
+      if (movSet) {
+        startMov(p);
+      } else {
+        writeServo(sersel, mypos.pos[sersel][posp]);
+      }
+    } else {
+      msgF(F("Not servod "), p);
+    }
   } else msgF(F("Invalid Position "), p);
 }
 
@@ -626,6 +761,10 @@ bool doRaute(byte tmp) {
   return raute;
 }
 
+void progge(byte b) {
+  if (teach) insProg(b);
+}
+
 void doCmd(byte tmp) {
   byte zwi;
   if (doRaute(tmp)) return;
@@ -635,7 +774,8 @@ void doCmd(byte tmp) {
   switch (tmp) {
     case 'a':   //
       prlnF(F("attached"));
-      attachServo(sersel, servMap[sersel]);
+      attachServo(sersel);
+      progge (0x2E);
       break;
     case 'b':   //
       showProgX();
@@ -650,10 +790,12 @@ void doCmd(byte tmp) {
     case 'd':   //
       prlnF(F("detached"));
       detachServo(sersel);
+      progge (0x2F);
       break;
     case 'e':   //
       selectServo(inp);
       msgF(F("Servo is "), sersel);
+      progge (0x10 + sersel);
       break;
     case 'f':   //
       prlnF(F("Fetch"));
@@ -691,15 +833,30 @@ void doCmd(byte tmp) {
       msgF(F("MessAnz"), messAnz);
       break;
     case 'o':   //
+      movSet = true;
+      prlnF(F("movSet on"));
+      progge(0x2A);
+      setServo(inp);
+      progge(0x20 + inp);
       break;
     case 'p':   //
-      serpos[sersel] = inp;
+      writeServo(sersel, inp);
       msgF(F("Servo"), serpos[sersel]);
-      writeServo(sersel, serpos[sersel]);
+      break;
+    case 'q':   //
+      mypos.pos[sersel][0] = inp;
+      msgF(F("Min set"), inp);
+      break;
+    case 'Q':   //
+      mypos.pos[sersel][9] = inp;
+      msgF(F("Max set"), inp);
       break;
     case 'r':   //
-      progp = 0;
-      readProg(inp);
+      readProg(inp, true);
+      showProg();
+      break;
+    case 'R':   //
+      readProg(inp, false);
       showProg();
       break;
     case 's':   //
@@ -735,7 +892,6 @@ void doCmd(byte tmp) {
         prlnF(F("steDirPlus falses"));
       }
       break;
-
     case 'w':   //
       writeProg(prognum);
       break;
@@ -752,13 +908,19 @@ void doCmd(byte tmp) {
       delatProg();
       redraw();
       break;
+    case 'z':   //
+      progp = 0;
+      readProg(inp, true);
+      zwi = execProg();
+      msgF(F("execProg is "), zwi);
+      break;
     case '+':   //
-      serpos[sersel] += 5;
+      writeServo(sersel, serpos[sersel] + delt);
       msgF(F("Servo"), serpos[sersel]);
-      writeServo(sersel, serpos[sersel]);
       break;
     case '#':   //
       setServo(inp);
+      progge(0x20 + inp);
       break;
     case 39:   // shift #
       raute = true;
@@ -770,12 +932,16 @@ void doCmd(byte tmp) {
       return; //avoid prompt
     case '.':   //
       prog[progp] = byte(inp);
+      dirty = true;
       redraw();
       break;
     case '-':   //
-      serpos[sersel] -= 5;
+      writeServo(sersel, serpos[sersel] - delt);
       msgF(F("Servo"), serpos[sersel]);
-      writeServo(sersel, serpos[sersel]);
+      break;
+    case '_':   //
+      delt = inp;
+      msgF(F("Delt is "), delt);
       break;
     case 193:   //up
       progp -= 1;
@@ -784,6 +950,15 @@ void doCmd(byte tmp) {
     case 194:   //dwn
       progp += 1;
       redraw();
+      break;
+    case 228:   // ä
+      teach = !teach;
+      if (teach) {
+        prlnF(F("Teach an"));
+      } else {
+        prlnF(F("Teach aus"));
+        redraw();
+      }
       break;
     default:
       if (verbo) {
@@ -808,8 +983,12 @@ void setup() {
     pinMode(outMap[i], OUTPUT);
   }
   EEPROM.get(epromAdr, mypos);
+  msgF(F("Progs to "), 16 * progLen);
   steSetup();
   prompt();
+  timServo(150);
+  pwm.begin();
+  pwm.setPWMFreq(50);  //
 }
 
 
@@ -821,6 +1000,7 @@ void loop() {
   currMs = millis();
 
   if (currMs - prevMs >= tickMs) {
+    if (movOn) handleMov();
     prevMs = currMs;
     einles();
   } // timer

@@ -1,10 +1,10 @@
 // Stepper control by timer2
 uint16_t volatile tim2Count = 0;    // steps remaining
 byte volatile tim2CompB = 0;        // debug
-byte tim2cs = 6;                    //
+byte tim2cs = 6;                    // clock divider
 uint16_t volatile stePos = 0;       // position 0..
 int16_t steRicht = 0;               // -1 dec 1 inc
-bool steDirPlus=false;              // set steDir for increasing position 
+bool steDirPlus=true;              // set steDir for increasing position 
 const byte steEna = 7; //hi disabled, orange      1
 const byte steStp = 8; //lo>hi clocks, yell       7
 const byte steDir = 9; //green                    8
@@ -36,12 +36,12 @@ ISR(TIMER2_COMPA_vect) {
 }
 
 ISR(TIMER2_COMPB_vect) {
-  digitalWrite(steStp, LOW);
+  digitalWrite(steStp, HIGH);
   tim2CompB = 1;
   if (tim2Count > 0) {
     tim2Count--;
     stePos += steRicht;
-    digitalWrite(steStp, HIGH);
+    digitalWrite(steStp, LOW);
   } else {
     TCCR2B = 0; //stop timer
   }
