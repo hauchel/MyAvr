@@ -1,10 +1,9 @@
 // Bahnsteuerung mit MiniControl
 // mit PCA9685
-
+#define BIG
 //ovres:#include <Servo.h>
 #include <Adafruit_PCA9685.h>
 #include <EEPROM.h>
-#include "texte.h"
 #include "helper.h"
 #include "timer2.h"
 // very careful, do not map same pin to different areas.
@@ -21,12 +20,7 @@ const byte outMap[anzOut] = {13, 12, 11};
 byte delt = 4;
 
 bool verbo = true;
-bool trace = true;    // true: show ececuted command
 bool raute = false;
-bool teach = false;   // true: teach-in
-bool dirty = false;   // true: current prog changed
-byte traceLin;        // avoid many trace outputs during wait
-
 uint16_t serpos[anzServ]; // current position
 bool atdet[anzServ];      // remember attached/detached
 byte sersel = 0;          // selected Servo
@@ -37,26 +31,7 @@ struct epromData {
 epromData mypos;
 const uint16_t epromAdr = 700;// depends on 1024-len(epromData)
 
-const byte progLen = 48;
-byte prog[progLen];
-byte progp = 0;
-byte beflen; // sick, set by decodeprog
-unsigned long stepTim[progLen]; // set on entry
 
-const byte anzStack = 16;
-byte var1[anzStack];
-byte var2[anzStack];
-byte actIn5[anzStack];
-byte actIn6[anzStack];
-byte progpS[anzStack];
-byte prognumS[anzStack];
-byte prognum;
-byte stackp;
-
-const byte minp = 5;
-const byte maxp = 180;
-
-bool mess = false;
 const uint16_t messSiz = 20;
 unsigned long messTim[messSiz];
 uint16_t messAnz = 20;
@@ -127,6 +102,8 @@ void timServo(byte wert) {
   OCR2A = wert;
 }
 
+
+#include "texte.h"
 void showPos() {
   char str[50];
   Serial.println();
@@ -135,213 +112,6 @@ void showPos() {
   for (byte i = 0; i < 10; i++) {
     sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
     Serial.println(str);
-  }
-}
-
-void decodProg(char tx[40], byte p) {
-  // annoying to save RAM
-  char str[20];
-  byte lo, hi;
-  lo = prog[p] & 0x0F;
-  hi = prog[p] >> 4;
-  beflen = 1;
-  switch (hi) {
-    case 0:   //
-      strcpy_P(tx, txReserved);
-      return;
-    case 1:   //
-      sprintf(tx, "%s %2u", "Sel Serv", lo);
-      return;
-    case 2:   //
-      if (lo < 10) {
-        sprintf(tx, "%s %2u ", "Set Pos", lo);
-        return;
-      }
-      switch (lo) {
-        case 0xA:
-          strcpy_P(tx, txMovOn);
-          break;
-        case 0xB:
-          strcpy_P(tx, txStepZero);
-          break;
-        case 0xD:
-          strcpy_P(tx, txStepDone);
-          break;
-        case 0xE:
-          strcpy_P(tx, txAttach);
-          break;
-        case 0xF:
-          strcpy_P(tx, txDetach);
-          break;
-        default:
-          sprintf(tx, "%s %2u ", "Set Pos invalid", lo);
-      }
-      return;
-    case 3:   //
-      strcpy_P(str, txWaitT);
-      sprintf(tx, "%s %2u ", str, lo);
-      return;
-    case 4:   //
-      strcpy_P(str, txWaitF);
-      sprintf(tx, "%s %2u ", str, lo);
-      return;
-    case 5:   //
-      strcpy_P(str, txSkipT);
-      sprintf(tx, "%s %2u ", str, lo);
-      return;
-    case 6:   //
-      strcpy_P(str, txSkipF);
-      sprintf(tx, "%s %2u ", str, lo);
-      return;
-    case 7:   //
-      if (lo < 8)    sprintf(tx, "%s %2u ", "DJNZ 1 to",  lo);
-      else sprintf(tx, "%s %2u ", "DJNZ 2 to",  lo - 8);
-      return;
-    case 8:   //
-      if (lo < 8)    sprintf(tx, "%s %2u ", "ActIn5 on",  lo);
-      else sprintf(tx, "%s %2u ", "ActIn6 on",  lo - 8);
-      return;
-    case 0xA:   //
-      if (lo < 8)    sprintf(tx, "%s %2u ", "Label",  lo);
-      else sprintf(tx, "%s %2u ", "Jump to",  lo - 8);
-      return;
-    case 0xB:   //
-      sprintf(tx, "%s %2u ", "Call Prog", lo);
-      return;
-    case 0xE:   //
-      beflen = 2;
-      switch (lo) {
-        case 0:
-          strcpy_P(str, txDelay);
-          sprintf(tx, "%s %3u ", txDelay, 10 * prog[p + 1]);
-          return;
-        case 1:
-          strcpy_P(str, txVar1);
-          break;
-        case 2:
-          strcpy_P(str, txVar2);
-          break;
-        case 5:
-          strcpy_P(str, txStepos);
-          break;
-        default:
-          strcpy_P(str, txInvalid);
-          sprintf(tx, "%s %2u ", str,  lo);
-          return;
-      }
-      sprintf(tx, "%s %3u ", str, prog[p + 1]);
-      return;
-    case 0xF:   //
-      switch (lo) {
-        case 0:
-          strcpy_P(tx, txReturn);
-          return;
-        case 2:
-          strcpy_P(tx, txTracOn);
-          return;
-        case 3:
-          strcpy_P(tx, txTracOff);
-          return;
-        case 0xF:
-          strcpy_P(tx, txEndprog);
-          return;
-        default:
-          sprintf(tx, "%s %2u ", "F Special", lo);
-      }
-      return;
-    default:
-      sprintf(tx, "%s %2u ", "Define Hi", hi);
-      return;
-  }
-}
-
-void insProg(uint16_t was) {
-  if (progp >= progLen) {
-    msgF(F("ProgP"), progp);
-    return;
-  }
-  dirty = true;
-  for (byte i = progLen - 1; i > progp; i--) {
-    prog[i] = prog[i - 1];
-  }
-  prog[progp] = byte(was);
-  progp++;
-}
-
-void delatProg() {
-  for (byte i = progp; i < progLen; i++) {
-    prog[i] = prog[i + 1];
-  }
-  prog[progLen - 1] = 255;
-  dirty = true;
-}
-
-void showProg() {
-  char str[60];
-  char txt[40];
-  char ind[3];
-  unsigned long mess0;
-  uint16_t mw, dau;
-  Serial.println();
-  if (progp >= progLen) progp = progLen - 1; //limit
-  mess0 = stepTim[0];
-  for (byte i = 0; i < progLen; i++) {
-    decodProg(txt, i);
-    if (i == progp) {
-      strcpy(ind, "->");
-    } else {
-      strcpy(ind, "  ");
-    }
-    if (mess) {
-      dau = stepTim[i + 1] - stepTim[i];
-      if (stepTim[i] == 0) {
-        mw = 0;
-      } else {
-        mw = stepTim[i] - mess0;
-      }
-      sprintf(str, "%2u  %02X %3u %3s  %-20s %6u  %6u", i, prog[i], prog[i], ind, txt, dau, mw);
-    }  else {
-      sprintf(str, "%2u  %02X %3u %3s  %-20s", i, prog[i], prog[i], ind, txt);
-    }
-    Serial.println(str);
-    if (prog[i] == 255 ) return;
-    if (beflen == 2) i++;
-  }
-}
-
-void showProgX() {
-  char str[10];
-  Serial.println();
-  for (byte i = 0; i < progLen; i++) {
-    sprintf(str, "%u,", prog[i]);
-    Serial.print(str);
-    if (prog[i] == 255 ) break;
-  }
-  Serial.println();
-}
-
-bool readProg(uint16_t  p, bool cleanonly) {
-  if (dirty and cleanonly) {
-    msgF(F("Prog dirty, use R"), p);
-    return false;
-  }
-  prognum = p;
-  progp = 0;
-  p = p * progLen;
-  EEPROM.get(p, prog);
-  dirty = false;
-  msgF(F(" Prog read Adr="), p);
-  return true;
-}
-
-void writeProg(uint16_t  p) {
-  p = p * progLen;
-  if ((p + progLen) < epromAdr) {
-    EEPROM.put(p, prog);
-    msgF(F(" Prog write Adr="), p);
-    dirty = false;
-  } else {
-    msgF(F("epromAdr! No Prog write "), p);
   }
 }
 
@@ -429,6 +199,15 @@ byte exepSpecial(byte lo) {
     case 4:   //
       showStack(0);
       return 0;
+    case 0xA:   //
+      msgF(F("Mess A"), progp);
+      return 30;
+    case 0xB:   //
+      msgF(F("Mess B"), progp);
+      return 31;
+    case 0xC:   //
+      msgF(F("Mess C"), progp);
+      return 32;
     case 0xD:   //
       msgF(F("EOP"), progp);
       return 9;
@@ -722,11 +501,7 @@ void prompt() {
   Serial.print(str);
 }
 
-void redraw() {
-  vt100Clrscr();
-  msgF(F("Program"), prognum);
-  showProg();
-}
+
 
 void selectServo(byte b) {
   if (b >= anzServ) b = anzServ - 1;
@@ -759,10 +534,6 @@ bool doRaute(byte tmp) {
     }
   }
   return raute;
-}
-
-void progge(byte b) {
-  if (teach) insProg(b);
 }
 
 void doCmd(byte tmp) {
