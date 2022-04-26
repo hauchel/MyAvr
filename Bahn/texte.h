@@ -24,8 +24,6 @@ const char txVerboOn[] PROGMEM = "Verbose on";
 const char txWaitF[] PROGMEM = "Wait False";
 const char txWaitT[] PROGMEM = "Wait True";
 
-
-const byte progLen = 48;
 byte prog[progLen];
 byte progp = 0;
 byte beflen; // sick, set by decodeprog
@@ -33,7 +31,7 @@ byte prognum;
 bool mess = false;
 bool dirty = false;   // true: current prog changed
 bool teach = false;   // true: teach-in
-bool trace = true;    // true: show ececuted command
+bool trace = false;   // true: show ececuted command
 byte traceLin;        // avoid many trace outputs during wait
 
 #ifdef BIG
@@ -241,7 +239,7 @@ void showProgX() {
 
 bool readProg(uint16_t  p, bool cleanonly) {
   if (dirty and cleanonly) {
-    msgF(F("Prog dirty, use R"), p);
+    msgF(F("\7 **Prog dirty, use w or R"), p);
     return false;
   }
   prognum = p;
@@ -249,7 +247,6 @@ bool readProg(uint16_t  p, bool cleanonly) {
   p = p * progLen;
   EEPROM.get(p, prog);
   dirty = false;
-  msgF(F(" Prog read Adr="), p);
   return true;
 }
 

@@ -1,0 +1,64 @@
+ist SW für atmega 328 Arduino mit der einfache Steuerungsaufgaben mit Modellbauservos 
+erstellt werden. Ein Stepper kann zusätzlich benutzt werden.
+Die Steuerungs-Programme werden im Eprom abgelegt und können 
+so schnell geändert werden ohne das Arduino Programm zu ändern.
+Im Einzelschritt urchgehen, Positionen der Servos ändern
+Dabei werden meistens ein-Byte Befehle benutzt, das führt zu gewissen limits
+
+Maximal können 16 Programme (0 bis 15) 
+
+Das Arduino Programm Bahn muss an die Umgebung angepasst werden
+* Definiere Inputs
+Programmtechnisch können 16 inputs verwendet werden die von 0 bis 15 numeriert sind
+hier brauchen wir nur 7
+const byte anzIn = 7;
+const byte inMap[anzIn] = {8,    A3,   A2,   A1,   A0,    7,    6};
+const bool inInv[anzIn] = {true, true, true, true, false, true, true};
+mit inMap werden die Arduino Pins zugeordnet, hier ist 
+inInv wird bestimmt, ob der Eingang invertiert wird oder nicht.
+
+Ebenso können 16 outputs verwendet werden
+const byte anzOut = 4;
+const byte outMap[anzOut] = {13, 12, 11, 10};
+
+Die Steuerung der Servos (oder Stepper) erfolgt über Positionstabellen, 
+Pro servo können 10 Pos# (von 0 bis 9) definiert werden.
+Pos# 0 ist der Minimal zulässige Wert, Pos# 9 Maximalwert. 
+Das soll mechanischen Belastungstest
+Diese können interaktiv geändert werden
+Ein Stepper verwendet, ist immer als Servo 0 angesprochen
+
+
+
+Bahn
+
+0 Stepper	1 Lade
+1 Horiz		1 Eingef	2 Mittig  3 Kurz vor lad  4 Lade		5 Entlad		0			9
+2 Vertikal	1 Oben	  2 Fahrn  	3    4 Ladepos			5 Entlad				0			9
+
+Params:
+delt 4
+tickMS 20
+
+Progs
+1 Grundstellung
+2 Fahrt zu FeedLaden
+3 Von FeedLaden -> Move
+4 Move -> Entladen
+5 Laden
+
+
+Feeder
+0 Rein		1
+1 Raus		11
+
+Params:
+delt 4
+tickMS 20
+
+
+Progs
+1 Grundstellung
+2 Fahrt zu Beladen
+3 Von Beladen -> Move
+4 Move -> Entladen

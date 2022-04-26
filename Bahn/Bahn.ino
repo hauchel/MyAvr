@@ -5,12 +5,14 @@
 #include <Adafruit_PCA9685.h>
 #include <EEPROM.h>
 #include "helper.h"
+
 #include "timer2.h"
 // very careful, do not map same pin to different areas.
 // Also see the 3 ste Pins  7,8,9 in timer2.h
 //  for TWI //  A5 SCL yell   A4 SDA grn
-const byte anzServ = 10; // Serv 0 is always stepper!
+const byte anzServ = 5; // Serv 0 is always stepper
 //ovres: const byte servMap[anzServ] = {0, 5, 6};
+const byte progLen = 48;
 const byte anzIn = 5;   // Inputs
 const byte inMap[anzIn] = {2,    A3,   A2,   A1,   A0};
 const bool inInv[anzIn] = {true, true, true, true, true};
@@ -28,9 +30,9 @@ byte posp = 0;            // position
 struct epromData {
   uint16_t pos[anzServ][10];
 };
+
 epromData mypos;
 const uint16_t epromAdr = 700;// depends on 1024-len(epromData)
-
 
 const uint16_t messSiz = 20;
 unsigned long messTim[messSiz];
@@ -38,6 +40,7 @@ uint16_t messAnz = 20;
 uint16_t messCnt;
 uint16_t messPtr;
 
+#include "namen.h"
 bool movOn;
 bool movSet;        // if true next # is slow
 uint16_t movCurr;
@@ -66,7 +69,6 @@ void writeServo(byte senum, uint16_t wert) {
     } else {
       if (verbo) msgF(F("Servo detached"), wert);
     }
-
   }
 }
 
@@ -78,6 +80,7 @@ uint16_t readServo(byte senum) {
     return serpos[senum];
   }
 }
+
 void detachServo(byte senum) {
   if (senum == 0) {
     digitalWrite(steEna, HIGH);
@@ -86,6 +89,12 @@ void detachServo(byte senum) {
     pwm.setPWM(senum, 0, 0);
   }
   atdet[senum] = false;
+}
+
+void detachAllServo() {
+  for (byte i = 0; i < anzServ; i++) {
+    detachServo(i);
+  }
 }
 
 void attachServo(byte senum) {
@@ -102,12 +111,14 @@ void timServo(byte wert) {
   OCR2A = wert;
 }
 
-
 #include "texte.h"
+
 void showPos() {
   char str[50];
+  char nam[20];
+  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
   Serial.println();
-  sprintf(str, "akt  %5u ", readServo(sersel));
+  sprintf(str, "akt  %5u  %s", readServo(sersel), nam);
   Serial.println(str);
   for (byte i = 0; i < 10; i++) {
     sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
@@ -504,8 +515,14 @@ void prompt() {
 
 
 void selectServo(byte b) {
+  char str[50];
+  char nam[20];
   if (b >= anzServ) b = anzServ - 1;
   sersel = b;
+  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
+  Serial.println();
+  sprintf(str, "Servo %2u %s at %4u", sersel, nam, serpos[sersel]);
+  Serial.println(str);
 }
 
 void setServo(byte p) {
@@ -563,9 +580,12 @@ void doCmd(byte tmp) {
       detachServo(sersel);
       progge (0x2F);
       break;
+    case 'D':   //
+      prlnF(F("Detach all"));
+      detachAllServo();
+      break;
     case 'e':   //
       selectServo(inp);
-      msgF(F("Servo is "), sersel);
       progge (0x10 + sersel);
       break;
     case 'f':   //
@@ -582,6 +602,9 @@ void doCmd(byte tmp) {
       EEPROM.put(epromAdr, mypos);
       break;
     case 'i':   //
+      info(0);
+      break;
+    case 'I':   //
       info(inp);
       break;
     case 'j':   //
@@ -623,8 +646,7 @@ void doCmd(byte tmp) {
       msgF(F("Max set"), inp);
       break;
     case 'r':   //
-      readProg(inp, true);
-      showProg();
+      if (readProg(inp, true)) showProg();
       break;
     case 'R':   //
       readProg(inp, false);
@@ -680,10 +702,10 @@ void doCmd(byte tmp) {
       redraw();
       break;
     case 'z':   //
-      progp = 0;
-      readProg(inp, true);
-      zwi = execProg();
-      msgF(F("execProg is "), zwi);
+      if (readProg(inp, true)) {
+        zwi = execProg();
+        msgF(F("execProg is"), zwi);
+      }
       break;
     case '+':   //
       writeServo(sersel, serpos[sersel] + delt);
