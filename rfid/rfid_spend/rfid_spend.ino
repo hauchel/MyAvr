@@ -2,19 +2,19 @@
    Typical pin layout used:
    -----------------------------------
                MFRC522      Arduino
-               Reader/PCD   Uno/101
+               Reader/PCD   Uno
    Signal      Pin          Pin
    -----------------------------------
-   RST/Reset   RST          9             white
-   SPI SS      SDA(SS)      10            lila
-   SPI MOSI    MOSI         11 / ICSP-4   blue
-   SPI MISO    MISO         12 / ICSP-1   green
-   SPI SCK     SCK          13 / ICSP-3   yell
+   RST/Reset   RST          9     white
+   SPI SS      SDA(SS)      10    lila
+   SPI MOSI    MOSI         11    blue
+   SPI MISO    MISO         12    green
+   SPI SCK     SCK          13    yell
    SOUND_PIN
    SERVO1_PIN
    SERVO2_PIN
-  Idea: store number in sector (1) and blockAddr (4)
-
+   HALT_PIN
+   GO_PIN
 */
 
 
@@ -22,38 +22,40 @@
 #include <MFRC522.h>
 #include <EEPROM.h>
 #include <Servo.h>
+#include <SoftwareSerial.h>
 #include "helper.h"
 
-#define SS_PIN 10  //slave select pin
-#define RST_PIN 9  //reset pin
-#define SOUND_PIN 8 // Beeper, high for sound
+#define SS_PIN 10     //slave select
+#define RST_PIN 9     //reset 
+#define SOUND_PIN 8   // Beeper, high for sound
 #define SERVO1_PIN 7
 #define SERVO2_PIN 6
+#define HALT_PIN 5      // stop execution
+#define GO_PIN 4        // start, if pressed on boot run prog 1
+#define SWS_RX_PIN 3    // from bahn, orange
+#define SWS_TX_PIN 2    // to bahn, yellow
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
-MFRC522::MIFARE_Key key;//create a MIFARE_Key struct named 'key', which will hold the card information
+MFRC522::MIFARE_Key key;    //create a MIFARE_Key struct
+SoftwareSerial mySerial =  SoftwareSerial(SWS_RX_PIN, SWS_TX_PIN);
 
-byte sector         = 1;
-byte blockAddr      = 4;
-byte dataBlock[]    = {
-  0x01, 0x02, 0x03, 0x04, //  1,  2,   3,  4,
-  0x05, 0x06, 0x07, 0x08, //  5,  6,   7,  8,
-  0x09, 0x0a, 0xff, 0x0b, //  9, 10, 255, 11,
-  0x0c, 0x0d, 0x0e, 0x0f  // 12, 13, 14, 15
-};
-
-int writeme = 0;     // if 1: write card
+int writeme = 0;          // if 1: write card
 bool verbo = false;
-bool check = false;
-byte readbackblock[18];//This array is used for reading out a block. The MIFARE_Read method requires a buffer that is at least 18 bytes to hold the 16 bytes of a block.
-byte cardNo = 1;
+bool check = false;       // auto-detect card in loop
+byte cardNo = 0;          // holds current cardno (for read and write)
 
 const byte anzServ = 2; //
 const byte servMap[anzServ] = {SERVO1_PIN, SERVO2_PIN};
 Servo myservo[anzServ];
 uint16_t serpos[anzServ]; // current position
 byte sersel = 0;          // selected Servo
-byte posp = 0;            // position
+byte posp[anzServ];       // position
+const byte progLen = 48;
+const byte anzRum = 40;   // from Bahn
+char rum[anzRum];
+byte rumP = 0;
+bool bahnPending = false; // waiting for Exec complete
+#include "namen_spend.h"
 
 struct epromData {
   uint16_t pos[anzServ][10];
@@ -61,15 +63,165 @@ struct epromData {
 epromData mypos;
 const uint16_t epromAdr = 700;// depends on 1024-len(epromData)
 
-void selectServo(byte b) {
-  if (b >= anzServ) b = anzServ - 1;
-  sersel = b;
-}
+#include "rfids.h"
+const byte anzAbl = 6;      // Ablagen+1 (1..5)
+byte ablag[anzAbl];          //
+byte state;
+byte ablRaus = 1;           // next cardno to output
+byte ablZiel = 1;           // where to put
 
 
 #include "../../Bahn/texte.h"
 // Mini exec from bahn
 
+
+byte callBahn(byte lo) {
+  // sends prog# to exec
+  if (verbo) msgF(F("callBahn"), lo);
+  mySerial.print(lo);
+  mySerial.print('z');
+  bahnPending = true;
+  return 0;
+}
+
+byte posStepBahn(byte lo) {
+  // sends Stepper command
+  if (verbo) msgF(F("stepBahn"), lo);
+  mySerial.print("0ea");
+  mySerial.print(lo);
+  mySerial.print('#');
+  bahnPending = true;
+  return 0;
+}
+
+void cleanAbl() {
+  for (byte i = 1; i < anzAbl; i++) {
+    ablag[i] = 0;
+  }
+  ablRaus = 1;
+}
+
+void showAbl() {
+  for (byte i = 1; i < anzAbl; i++) {
+    Serial.print(ablag[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+}
+
+byte freeAbl() {
+  // returns number to put, 0 not avail
+  for (byte i = 1; i < anzAbl; i++) {
+    if (ablag[i] == 0) return i;
+  }
+  return 0;
+}
+
+void switchState(byte to) {
+  msgF(F("State to"), to);
+  switch (to) {
+    case 0:
+      cleanAbl();
+      mySerial.print("V10_"); // klapp and delt
+      callBahn(1);
+      state = 0;
+      break;
+    case 1:      // Position Stepper
+      callBahn(2);
+      state = 1;
+      break;
+    case 2:   // read card
+      cardNo = doFeed(2);
+      if (cardNo == 0) {
+        state = 101;
+        return;
+      }
+      // drei Möglichkeiten: ablegen, direkt loopen, anderen loopen
+      ablZiel = freeAbl();
+      if (ablZiel == 0) {
+        state = 102;
+        return;
+      }
+      state=2;
+      break;
+    case 3:   // card  in tray
+      readProg(3, true); //schieb raus
+      execProg();
+      callBahn(3);
+      state = 3;
+      break;
+    case 4:     // ablegen 
+      ablag[ablZiel] = cardNo;
+      posStepBahn(ablZiel + 1); // #2..#6
+      callBahn(4);
+      state = 4;
+      break;
+    case 6:     // aufnehmen
+      callBahn(6);
+      state = 6;
+      break;
+    default:
+      msgF(F("State invalid"), to);
+      state = 113;
+      return;
+  }
+}
+
+void stater() {
+  while (state < 100) {
+    if (digitalRead(HALT_PIN) == LOW) {
+      state = 115;
+      return;
+    }
+    while (bahnPending) {
+      if (digitalRead(HALT_PIN) == LOW) {
+        state = 115;
+        return;
+      }
+      Serial.write('.');
+      delay(100);
+      while (mySerial.available() > 0) {
+        handleRum(mySerial.read());
+      }
+    }
+
+
+    msgF(F("Current State "), state);
+
+    switchState(state + 1);
+  }
+}
+
+void selectServo(byte b) {
+  char str[50];
+  char nam[20];
+  if (b >= anzServ) b = anzServ - 1;
+  sersel = b;
+  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
+  Serial.println();
+  sprintf(str, "Servo %2u %s at %2u %4u", sersel, nam, posp[sersel], serpos[sersel]);
+  Serial.println(str);
+}
+
+void writeServo(byte senum, uint16_t wert) {
+  if (wert > mypos.pos[senum][9]) wert = mypos.pos[senum][9];
+  if (wert < mypos.pos[senum][0]) wert = mypos.pos[senum][0];
+  serpos[senum] = wert;
+  myservo[senum].write(wert);
+  if (verbo) msgF(F("writeServo"), wert);
+}
+
+void setServo(byte p) {
+  if (p < 10) {
+    posp[sersel] = p;
+    if (mypos.pos[sersel][p] <= mypos.pos[sersel][9]) {
+      msgF(F("Posi"), mypos.pos[sersel][p]);
+      writeServo(sersel, mypos.pos[sersel][p]);
+    } else {
+      msgF(F("Not servod "), p);
+    }
+  } else msgF(F("Invalid Position "), p);
+}
 
 byte exepSelServo(byte lo) {
   if (lo >= anzServ) {
@@ -81,7 +233,7 @@ byte exepSelServo(byte lo) {
 
 byte exepSetPos(byte lo) {
   if (lo < 10) {
-    posp = lo; //verwirrt?
+    posp[sersel] = lo; //verwirrt?
     writeServo(sersel, mypos.pos[sersel][lo]);
     return 0;
   }
@@ -99,7 +251,6 @@ byte exepSetPos(byte lo) {
   return 0;
 }
 
-
 byte exepSpecial(byte lo) {
   switch (lo) {
     case 0xA:   //
@@ -112,13 +263,13 @@ byte exepSpecial(byte lo) {
       msgF(F("Mess C"), progp);
       return 32;
     case 0xD:   //
-      msgF(F("EOP"), progp);
+      // msgF(F("EOP"), progp);
       return 9;
     case 0xE:   //
-      msgF(F("EOP"), progp);
+      // msgF(F("EOP"), progp);
       return 9;
     case 0xF:   //
-      msgF(F("EOP"), progp);
+      // msgF(F("EOP"), progp);
       return 9;
     default:
       msgF(F("Special not implemented "), lo);
@@ -138,6 +289,7 @@ byte exep2byte(byte lo) {
   progp++;
   return 0;
 }
+
 byte execOne() {
   byte lo, hi;
   if (progp >= progLen) {
@@ -154,6 +306,12 @@ byte execOne() {
       return exepSelServo(lo);
     case 2:   //
       return exepSetPos(lo);
+    case 0xB:   // Bahn!
+      return callBahn(lo);
+      break;
+    case 0xC:   // Bahn!
+      return posStepBahn(lo);
+      break;
     case 0xE:   //
       return exep2byte(lo);
     case 0xF:   //
@@ -174,6 +332,7 @@ byte execProg() {
 
   while (err == 0) {
     if (Serial.available() > 0) return 5;
+    if (digitalRead(HALT_PIN) == LOW) return 4;
     if (progp != traceLin) {
       traceLin = progp;
       if (trace) {
@@ -187,150 +346,53 @@ byte execProg() {
   return err;
 }
 
-void writeServo(byte senum, uint16_t wert) {
-  if (wert > mypos.pos[senum][9]) {
-    wert = mypos.pos[senum][9];
-  }
-  if (wert < mypos.pos[senum][0]) {
-    wert = mypos.pos[senum][0];
-  }
-  serpos[senum] = wert;
-  myservo[senum].write(wert);
-  if (verbo) msgF(F("writeServo"), wert);
-}
-
-void setServo(byte p) {
-  if (p < 10) {
-    posp = p;
-    if (mypos.pos[sersel][p] <= mypos.pos[sersel][9]) {
-      msgF(F("Posi"), mypos.pos[sersel][p]);
-      writeServo(sersel, mypos.pos[sersel][posp]);
-    } else {
-      msgF(F("Not servod "), p);
-    }
-  } else msgF(F("Invalid Position "), p);
-}
-
 void showPos() {
   char str[50];
+  char nam[20];
+  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
   Serial.println();
-  sprintf(str, "akt  %5u ",  myservo[sersel].read());
+  sprintf(str, "akt  %5u %s",  myservo[sersel].read(), nam);
   Serial.println(str);
   for (byte i = 0; i < 10; i++) {
     sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
     Serial.println(str);
   }
 }
-int tryread() {
-  // returns true if success
-  int tmp = mfrc522.PICC_ReadCardSerial();
-  if (verbo) Serial.print("tryread: ReadCardSerial ");
-  if (tmp) {
-    if (verbo) Serial.println("OK");
+
+byte doFeed(byte was) {
+  // return card # read else 0
+  // was 1 lesen+raus,   2 lesen only
+  byte zwi;
+  byte card = 0;
+  readProg(2, true);
+  zwi = execProg();
+  msgF(F("exec2 is "), zwi);
+  if (zwi != 9) return 0;
+  // read?
+  if (mfrc522.PICC_IsNewCardPresent()) {
+    card = newcard();
+  } else {
+    msgF(F("doit no newcard"), 0);
   }
-  else {
-    msgF(F("Tryread Err"), tmp);
-  }
-  return (tmp);
+  if (was == 2) return card;
+  readProg(3, true);
+  zwi = execProg();
+  msgF(F("exec3 is "), zwi);
+  return card;
 }
 
-void dump_byte_array(byte *buffer, byte bufferSize) {
-  for (byte i = 0; i < bufferSize; i++) {
-    Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-    Serial.print(buffer[i], HEX);
-  }
-}
-void rfidDisconn () {
-  mfrc522.PICC_HaltA();
-  mfrc522.PCD_StopCrypto1();
-}
-
-void rfidRead(byte blocknum) {
-  byte buffer[18];
-  byte size = sizeof(buffer);
-  MFRC522::StatusCode status;
-  status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(blocknum, buffer, &size);
-  if (status != MFRC522::STATUS_OK) {
-    Serial.print(F("rfid Read failed: "));
-    Serial.println(mfrc522.GetStatusCodeName(status));
-    return;
-  }
-
-  Serial.print(F("Data in block ")); Serial.print(blocknum); Serial.println(F(":"));
-  dump_byte_array(buffer, 16); Serial.println();
-  Serial.println();
-}
-
-void rfidWakeup() {
-  byte atqa_answer[2];
-  byte atqa_size = 2;
-  mfrc522.PICC_WakeupA(atqa_answer, &atqa_size);
-}
-
-void newcard() {
-  byte trailerBlock   = 7;
-  MFRC522::StatusCode status;
-  byte buffer[18];
-  byte size = sizeof(buffer);
-  if ( ! tryread()) {
-    Serial.println("newcard: aborting");
-    return;
-  }
-  // Authenticate
-  if (verbo) Serial.println(F("Authenticating using key A..."));
-  status = (MFRC522::StatusCode) mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, trailerBlock, &key, &(mfrc522.uid));
-  if (status != MFRC522::STATUS_OK) {
-    Serial.print(F("PCD_Authenticate() failed: "));
-    Serial.println(mfrc522.GetStatusCodeName(status));
-    return;
-  }
-  // Show the whole sector as it currently is
-  if (verbo) {
-    Serial.println(F("Current data in sector:"));
-    mfrc522.PICC_DumpMifareClassicSectorToSerial(&(mfrc522.uid), &key, sector);
-    Serial.println();
-  }
-  status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(blockAddr, buffer, &size);
-  if (status != MFRC522::STATUS_OK) {
-    Serial.print(F("newcard Read failed: "));
-    Serial.println(mfrc522.GetStatusCodeName(status));
-  }
-
-  Serial.print(F("Data in block ")); Serial.print(blockAddr); Serial.println(F(":"));
-  dump_byte_array(buffer, 16); Serial.println();
-  Serial.println();
-
-  if (writeme != 0) {
-    Serial.print(F("Writing data into block ")); Serial.print(blockAddr);
-    Serial.println(F(" ..."));
-    dump_byte_array(dataBlock, 16); Serial.println();
-    status = (MFRC522::StatusCode) mfrc522.MIFARE_Write(blockAddr, dataBlock, 16);
-    if (status != MFRC522::STATUS_OK) {
-      Serial.print(F("MIFARE_Write() failed: "));
-      Serial.println(mfrc522.GetStatusCodeName(status));
-    }
-    Serial.println();
-  }
-  if (check) {
-    rfidDisconn ();
-  }
-}
-
-void beep(int d) {
-  digitalWrite(SOUND_PIN, 1);
-  delay(d);
-  digitalWrite(SOUND_PIN, 0);
-}
-
-void cardNoChange() {
-  msgF (F("Card is"), cardNo);
-  dataBlock[4] = cardNo;
-  dataBlock[5] = 255 - cardNo;
+void prompt() {
+  char str[50];
+  sprintf(str, "C%2u S%2u P%2u>", cardNo, state, bahnPending);
+  Serial.print(str);
 }
 
 void docmd(byte tmp) {
   byte zwi;
-  if (doNum(tmp)) return;
+  if (doNum(tmp)) {
+    Serial.print(char(tmp));
+    return;
+  }
   tmp = doVT100(tmp);
   if (tmp == 0) return;
   switch (tmp) {
@@ -340,7 +402,10 @@ void docmd(byte tmp) {
       progge (0x2E);
       break;
     case 'b':   //
-      beep(20);
+      beep(inp);
+      break;
+    case 'B':   //
+      beepErr(inp);
       break;
     case 'c':   //
       check = !check;
@@ -354,7 +419,6 @@ void docmd(byte tmp) {
       break;
     case 'e':   //
       selectServo(inp);
-      msgF(F("Servo is "), sersel);
       progge (0x10 + sersel);
       break;
     case 'f':   //
@@ -372,6 +436,13 @@ void docmd(byte tmp) {
       break;
     case 'i':   //
       showPos();
+      showAbl();
+      break;
+    case 'j':   //
+      switchState(inp);
+      break;
+    case 'J':   //
+      stater();
       break;
     case 'k':   //
       prlnF(F("Write off"));
@@ -405,7 +476,7 @@ void docmd(byte tmp) {
       showProg();
       break;
     case 's':   //
-      mypos.pos[sersel][posp] = serpos[sersel];
+      mypos.pos[sersel][posp[sersel]] = serpos[sersel];
       showPos();
       break;
     case 't':   //
@@ -413,7 +484,13 @@ void docmd(byte tmp) {
       if (trace)   prlnF(F("Trace an"));
       else         prlnF(F("Trace aus"));
       break;
-    case 'u':   //  wakeUp
+    case 'u':   //
+      msgF(F("rfidWakeup"), rfidWakeup());
+      newcard();
+      break;
+    case 'U':   //
+      msgF(F("rfidReqA"), rfidReqA());
+      newcard();
       break;
     case 'v':   //
       verbo = !verbo;
@@ -436,15 +513,16 @@ void docmd(byte tmp) {
       delatProg();
       redraw();
       break;
+    case 'z':   //
+      if (readProg(inp, true)) {
+        zwi = execProg();
+        msgF(F("execProg is"), zwi);
+      }
+      break;
 
     case 13:
       redraw();
       break;
-    case 'z':   //
-      progp = inp;
-      msgF(F("Progp"), progp);
-      break;
-
     case '+':   //
       cardNo++;
       cardNoChange();
@@ -483,6 +561,12 @@ void docmd(byte tmp) {
         redraw();
       }
       break;
+    case 246:   // ö
+      callBahn(inp);
+      break;
+    case 252:   // ü
+      posStepBahn(inp);
+      break;
     default:
       if (verbo) {
         Serial.println();
@@ -492,17 +576,37 @@ void docmd(byte tmp) {
         Serial.println ("?  0..5, +, -, show, verbose");
       }
   } //case
+  prompt();
+}
+
+void handleRum(char c) {
+  if (verbo) Serial.println(uint8_t(c));
+  if (c == 10) return;
+  if (c != 13) {
+    rum[rumP] = c;
+    rumP++;
+    rum[rumP] = 0;
+    if (rumP < (anzRum - 2)) return;
+  }
+  Serial.print(">>");
+  Serial.println(rum);
+  rumP = 0;
+  if (strncmp(rum, "OK", 2) == 0) {
+    msgF(F(" ok erkannt"), 0);
+  }
 
 }
 
 
 void setup() {
-  const char info[] = "brain " __DATE__ " " __TIME__;
   Serial.begin(38400);
-  Serial.println(info);
-
+  Serial.println(F( "rfid_spend " __DATE__ " " __TIME__));
   SPI.begin();               // Init SPI bus
   mfrc522.PCD_Init();        // Init MFRC522 card
+
+  pinMode(SWS_RX_PIN, INPUT_PULLUP);
+  pinMode(SWS_TX_PIN, OUTPUT);
+  mySerial.begin(38400);
 
   pinMode(SOUND_PIN, OUTPUT);
   digitalWrite(SOUND_PIN, 0);
@@ -512,8 +616,10 @@ void setup() {
     key.keyByte[i] = 0xFF;//keyByte is defined in the "MIFARE_Key" 'struct' definition in the .h file of the library
   }
   EEPROM.get(epromAdr, mypos);
+  pinMode(HALT_PIN, INPUT_PULLUP);
+  pinMode(GO_PIN, INPUT_PULLUP);
+  prompt();
 }
-
 
 void loop() {
   if (check) {
@@ -525,6 +631,14 @@ void loop() {
   if (Serial.available() > 0) {
     Serial.println();
     docmd( Serial.read());
+  }
+
+  while (mySerial.available() > 0) {
+    handleRum(mySerial.read());
+  }
+
+  if (digitalRead(GO_PIN) == LOW) {
+    doFeed(3);
   }
 
   currMs = millis();

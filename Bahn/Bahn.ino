@@ -10,23 +10,24 @@
 // very careful, do not map same pin to different areas.
 // Also see the 3 ste Pins  7,8,9 in timer2.h
 //  for TWI //  A5 SCL yell   A4 SDA grn
-const byte anzServ = 5; // Serv 0 is always stepper
+const byte anzServ = 8; // Serv 0 is always stepper
 //ovres: const byte servMap[anzServ] = {0, 5, 6};
 const byte progLen = 48;
 const byte anzIn = 5;   // Inputs
 const byte inMap[anzIn] = {2,    A3,   A2,   A1,   A0};
 const bool inInv[anzIn] = {true, true, true, true, true};
+byte inExec[anzIn] =      {0, 1, 2, 0, 0};  // >0 calls prog if pressed.
 bool inVal[anzIn];      // current value read
 const byte anzOut = 3;  // outputs
 const byte outMap[anzOut] = {13, 12, 11};
 byte delt = 4;
 
-bool verbo = true;
-bool raute = false;
+bool verbo = false;     // toggle v   si verb   si verb   si verb
+bool silent = true;     // set by V   T  F   -> F  F   -> F   T   if silent all output starts with OK or ERR
 uint16_t serpos[anzServ]; // current position
 bool atdet[anzServ];      // remember attached/detached
 byte sersel = 0;          // selected Servo
-byte posp = 0;            // position
+byte posp[anzServ];      // position #
 struct epromData {
   uint16_t pos[anzServ][10];
 };
@@ -41,7 +42,7 @@ uint16_t messCnt;
 uint16_t messPtr;
 
 #include "namen.h"
-bool movOn;
+bool movOn;         // slow Move
 bool movSet;        // if true next # is slow
 uint16_t movCurr;
 uint16_t movEnd;
@@ -117,11 +118,14 @@ void showPos() {
   char str[50];
   char nam[20];
   strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
-  Serial.println();
-  sprintf(str, "akt  %5u  %s", readServo(sersel), nam);
+  sprintf(str, "Servo %2u %s at %1u ", sersel, nam, posp[sersel]);
+  Serial.print(str);
+  strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][posp[sersel]])));
+  sprintf(str, "%s (%u)", nam, serpos[sersel]);
   Serial.println(str);
   for (byte i = 0; i < 10; i++) {
-    sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
+    strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][i])));
+    sprintf(str, "%2u   %5u  %s", i, mypos.pos[sersel][i], nam);
     Serial.println(str);
   }
 }
@@ -220,13 +224,10 @@ byte exepSpecial(byte lo) {
       msgF(F("Mess C"), progp);
       return 32;
     case 0xD:   //
-      msgF(F("EOP"), progp);
       return 9;
     case 0xE:   //
-      msgF(F("EOP"), progp);
       return 9;
     case 0xF:   //
-      msgF(F("EOP"), progp);
       return 9;
     default:
       msgF(F("Special not implemented "), lo);
@@ -266,7 +267,7 @@ byte exepSelServo(byte lo) {
 
 byte exepSetPos(byte lo) {
   if (lo < 10) {
-    posp = lo; //verwirrt?
+    posp[sersel] = lo; //verwirrt?
     if (movSet) {
       startMov(lo);
     } else {
@@ -406,7 +407,7 @@ byte execProg() {
       err = 0;
     }
     if (err == 9) { //pop
-      if (stackp == 0) return 9;
+      if (stackp == 0) return 0;
       stackp--;
       prognum = prognumS[stackp] ;
       readProg(prognum, false); // egal
@@ -449,8 +450,10 @@ void startMov(byte z) {
   } else {
     movDelt = -delt;
   }
-  sprintf(str, "Mov from %4u to %4u Delt %2d", movCurr, movEnd, movDelt);
-  Serial.println(str);
+  if (verbo) {
+    sprintf(str, "Mov from %4u to %4u Delt %2d", movCurr, movEnd, movDelt);
+    Serial.println(str);
+  }
   movOn = true;
 }
 
@@ -500,14 +503,11 @@ void startMess() {
 
 void prompt() {
   char str[50];
-  if (raute) {
-    Serial.print("#");
-    return;
-  }
+  if (silent) return;
   if (teach) {
-    sprintf(str, "(%2u) %2u/%1u>", progp, sersel, posp);
+    sprintf(str, "(%2u) %2u/%1u>", progp, sersel, posp[sersel]);
   } else {
-    sprintf(str, "%2u/%1u>", sersel, posp);
+    sprintf(str, "%2u/%1u>", sersel, posp[sersel]);
   }
   Serial.print(str);
 }
@@ -515,74 +515,69 @@ void prompt() {
 
 
 void selectServo(byte b) {
-  char str[50];
+  char str[100];
   char nam[20];
   if (b >= anzServ) b = anzServ - 1;
   sersel = b;
+  if (silent) return;
   strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
   Serial.println();
-  sprintf(str, "Servo %2u %s at %4u", sersel, nam, serpos[sersel]);
+  sprintf(str, "Servo %2u %s at %1u ", sersel, nam, posp[sersel]);
+  Serial.print(str);
+  strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][posp[sersel]])));
+  sprintf(str, "%s (%u)", nam, serpos[sersel]);
   Serial.println(str);
 }
 
 void setServo(byte p) {
+  // to pos#
   if (p < 10) {
-    posp = p;
+    posp[sersel] = p;
     if (mypos.pos[sersel][p] <= mypos.pos[sersel][9]) {
-      msgF(F("Posi"), mypos.pos[sersel][p]);
+      if (verbo) msgF(F("Posi"), mypos.pos[sersel][p]);
       if (movSet) {
         startMov(p);
       } else {
-        writeServo(sersel, mypos.pos[sersel][posp]);
+        writeServo(sersel, mypos.pos[sersel][p]);
       }
     } else {
-      msgF(F("Not servod "), p);
+      msgF(F("ERR Not servod "), p);
     }
-  } else msgF(F("Invalid Position "), p);
+  } else msgF(F("ERR Invalid Position "), p);
 }
 
-bool doRaute(byte tmp) {
-  if (raute) {
-    if ((tmp >= '0') && (tmp <= '9')) {
-      setServo(tmp - '0');
-    }  else {
-      raute = false;
-      if (tmp == '#') return true;
-    }
-  }
-  return raute;
-}
 
 void doCmd(byte tmp) {
   byte zwi;
-  if (doRaute(tmp)) return;
-  if (doNum(tmp)) return;
+  if (doNum(tmp)) {
+    if (!silent) {
+      Serial.print(char(tmp));
+    }
+    return;
+  }
   tmp = doVT100(tmp);
   if (tmp == 0) return;
   switch (tmp) {
     case 'a':   //
-      prlnF(F("attached"));
       attachServo(sersel);
       progge (0x2E);
+      if (!silent)  prlnF(F("attached"));
       break;
     case 'b':   //
       showProgX();
       break;
-    case 13:
-      redraw();
-      break;
     case 'c':   //
       progp = inp;
-      msgF(F("Progp"), progp);
+      redraw();
       break;
     case 'd':   //
-      prlnF(F("detached"));
       detachServo(sersel);
       progge (0x2F);
+      if (!silent)  prlnF(F("detached"));
       break;
     case 'D':   //
-      prlnF(F("Detach all"));
       detachAllServo();
+      if (!silent)  prlnF(F("all detached"));
       break;
     case 'e':   //
       selectServo(inp);
@@ -628,7 +623,6 @@ void doCmd(byte tmp) {
       break;
     case 'o':   //
       movSet = true;
-      prlnF(F("movSet on"));
       progge(0x2A);
       setServo(inp);
       progge(0x20 + inp);
@@ -646,14 +640,14 @@ void doCmd(byte tmp) {
       msgF(F("Max set"), inp);
       break;
     case 'r':   //
-      if (readProg(inp, true)) showProg();
+      if (readProg(inp, true)) redraw();
       break;
     case 'R':   //
       readProg(inp, false);
-      showProg();
+      redraw();
       break;
     case 's':   //
-      mypos.pos[sersel][posp] = serpos[sersel];
+      mypos.pos[sersel][posp[sersel]] = serpos[sersel];
       showPos();
       break;
     case 't':   //
@@ -670,20 +664,23 @@ void doCmd(byte tmp) {
       showTims();
       break;
     case 'v':   //
-      verbo = !verbo;
-      if (verbo) {
-        prlnF(F("Verbose an"));
+      if (silent) {
+        verbo = false;
+        silent = false;
+        prlnF(F("Silent aus"));
       } else {
-        prlnF(F("Verbose aus"));
+        verbo = !verbo;
+        if (verbo) {
+          prlnF(F("Verbose an"));
+        } else {
+          prlnF(F("Verbose aus"));
+        }
       }
       break;
     case 'V':   //
-      steDirPlus = !steDirPlus;
-      if (steDirPlus) {
-        prlnF(F("steDirPlus true"));
-      } else {
-        prlnF(F("steDirPlus falses"));
-      }
+      silent = true;
+      verbo = false;
+      prlnF(F("OK silent"));
       break;
     case 'w':   //
       writeProg(prognum);
@@ -704,7 +701,11 @@ void doCmd(byte tmp) {
     case 'z':   //
       if (readProg(inp, true)) {
         zwi = execProg();
-        msgF(F("execProg is"), zwi);
+        if (zwi == 0) {
+          prlnF(F("OK"));
+        } else {
+          msgF(F("ERR"), zwi);
+        }
       }
       break;
     case '+':   //
@@ -714,10 +715,6 @@ void doCmd(byte tmp) {
     case '#':   //
       setServo(inp);
       progge(0x20 + inp);
-      break;
-    case 39:   // shift #
-      raute = true;
-      setServo(inp);
       break;
     case ',':   //
       insProg(inp);
@@ -735,6 +732,9 @@ void doCmd(byte tmp) {
     case '_':   //
       delt = inp;
       msgF(F("Delt is "), delt);
+      break;
+    case 13:
+      redraw();
       break;
     case 193:   //up
       progp -= 1;
@@ -797,4 +797,5 @@ void loop() {
     prevMs = currMs;
     einles();
   } // timer
+
 }

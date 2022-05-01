@@ -32,20 +32,32 @@ Ein Stepper verwendet, ist immer als Servo 0 angesprochen
 
 Bahn
 
-0 Stepper	1 Lade
-1 Horiz		1 Eingef	2 Mittig  3 Kurz vor lad  4 Lade		5 Entlad		0			9
-2 Vertikal	1 Oben	  2 Fahrn  	3    4 Ladepos			5 Entlad				0			9
+0 Stepper	1 Horiz			2 Vertikal		4 AusGreif		5 AusDreh
+0 0			0 Min			0 Min			0				0
+1 LadeFeed	1 Eingef		1 Oben			1 zu			1 Innen
+			2 Rausgezogen	2 Fahrn			2 leicht offen	2
+			3 Kurz vor lad  3 über etlad	3 noch drehbar	3
+			4 LadeFeed		4 LadeFeed						4
+			5 Entlad    	5 Entlad		5 ganz offen,	5
+			6 E2			6
+			7				7 unter 8
+			8 Raus			8 Raus
+			9 Max			9 Max
 
 Params:
 delt 4
 tickMS 20
 
 Progs
-1 Grundstellung
-2 Fahrt zu FeedLaden
-3 Von FeedLaden -> Move
-4 Move -> Entladen
-5 Laden
+1 Grundstellung							18,46,33,224,10,17,46,33,16,47,45,160,229,10,46,32,45,80,168,224,30,33,45,255,
+2 Fahrt zu LadeFeed		dann feeden		16,46,33,45,18,46,34,17,46,35,224,50,18,36,224,10,17,36,255,
+3 Von LadeFeed -> Move	dann Stepper	17,46,35,224,10,18,46,34,224,30,17,33,16,46,255,
+4 Move -> Entladen						18,46,34,17,46,37,224,50,18,37,224,50,38,224,10,17,34,224,20,18,34,16,46,255,
+5 zu loop  								18,46,38,224,10,17,46,33,224,20,18,33,16,46,255,
+6 Move->Laden							18,46,37,224,20,17,46,37,224,50,18,34,255,
+7 Dreh Grundst							20,46,33,224,20,21,46,33,224,30,20,37,255,
+8 Raus									20,37,46,16,40,45,18,40,17,40,224,100,18,39,224,50,17,34,255,
+9 Zu und rum							20,33,46,224,50,47,21,35,46,224,40,37,224,33,255,
 
 
 Feeder

@@ -11,6 +11,7 @@ curs up/down move progp
 ., 	insert . at progp
 .. 	replace . at progp ( e.g. 25.)
 y	delete at progp
+b   backup (print to copy)
 ä 	teach on/off
 
 Control related
@@ -20,8 +21,13 @@ d	detach selected servo
 D	detach all
 .p	set selected servo to position . (uint16)
 .#	select pos# . and set selected servo
-q	min is stored in 0#
-Q	max is stored in 9#
+.o  like # but slow move using delt and tickms
++	inc position by delt
+-	dec position by delt
+._  set delt to .
+.T  set tick to . ms (uint16)
+.q	min . is stored in 0#
+.Q	max . is stored in 9#
 f	fetch positions
 h	write positions
 i	show positions of selected servo and Inputs
@@ -31,7 +37,10 @@ Execution related
 
 
 Eprom Layout:
-
+0..proglen-1  program 0
+proglen .. 2*-1       1
+...
+epromAdr      data Area
 
 Limits durch Befehle:
 s	16 Servos Servo 0 ist Stepper
@@ -60,10 +69,10 @@ DJNZ 2					78..F	120	121
 ActIn5					81..7	129		Jump to Label5 when Inp(1..7) is true, 0 disable
 ActIn6					89..F	136		Jump to Label6 when Inp(1..7) is true, 8 disable
 inc,dec...				9					
-Label    				A0..7	160  7 used for timeout,6,5 for Actin
+Label    				A0..7	160  	7 used for timeout,6,5 for Actin
 Jump 					A8..F	168
-CallProg				Br		176	177	178
-Set Out Hi				Co1
+CallProg				Br		176	177	178  spender ruft Bahn!
+Set Out Hi				Co		192          spender Pos Stepper
 Set Out Lo				Do
 2 byte commands			E		exclude A0..7 (160..167) and FF!
 delay					E0		224
@@ -73,7 +82,8 @@ set var2				E2		226
 						E4
 set ServPos	L			E5
 set ServPos	H			E6		230	
-set Delta               E6					
+set Delta               E6		
+set ticMs               E7			
 						
 NOP						F0		240
 Break					F1		242
@@ -83,7 +93,7 @@ Trace on				F4
 Trace off				F5
 showStack				F6
 Error a,b,c				FA..C	250 251 252
-Break					FD		253
+						FD		253
 Return					FE		254 (currently =FF)
 Endprog					FF		255
 
@@ -105,3 +115,35 @@ Return Values
 31 Error b
 32 Error c
 
+
+Relais Umschalter Top view, logos unten rechts
+    6					1
+			g	y
+	+	a	g	y	b 	+
+			|	|
+	-	b	g	y	a	-
+	b					a
+	
+
+Buttons:
+Links mb 1a
+Mitte 1b 2b
+Recht ma 2a
+
+g=RX, y=TX 
+  Port    Kabel			   Port		Kabel	
+12green - orange = RX    12yellow - yellow = TX
+m green - yellow = RX	 m yellow - orange = TX 	
+	
+RX	1ga - myb  TX  Li
+RX	1gb - 2yb  TX  Mi
+TX	1ya - mgb  RX  Li
+TX	1yb - 2gb  RX  Mi	
+RX	mga - 2ya  TX  Re	
+RX	mgb - 1ya  TX  Li
+TX	mya - 2ga  RX  Re
+TX	myb - 1ga  RX  Li
+RX	2ga - mya  TX  Re
+RX	2gb - 1yb  TX  Mi
+TX	2ya - mga  RX  Re
+TX	2yb - 1gb  RX  Mi

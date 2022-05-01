@@ -51,6 +51,7 @@ byte stackp;
 void decodProg(char tx[40], byte p) {
   // annoying to save RAM
   char str[20];
+  char nam[20];
   byte lo, hi;
   lo = prog[p] & 0x0F;
   hi = prog[p] >> 4;
@@ -60,7 +61,8 @@ void decodProg(char tx[40], byte p) {
       strcpy_P(tx, txReserved);
       return;
     case 1:   //
-      sprintf(tx, "%s %2u", "Sel Serv", lo);
+      strcpy_P(nam, (char *)pgm_read_word(&(servNam[lo])));
+      sprintf(tx, "%s %2u %s", "Sel Serv", lo, nam);
       return;
     case 2:   //
       if (lo < 10) {
@@ -117,6 +119,9 @@ void decodProg(char tx[40], byte p) {
       return;
     case 0xB:   //
       sprintf(tx, "%s %2u ", "Call Prog", lo);
+      return;
+    case 0xC:   //
+      sprintf(tx, "%s %2u ", "Pos Stepper", lo);
       return;
     case 0xE:   //
       beflen = 2;
@@ -262,8 +267,12 @@ void writeProg(uint16_t  p) {
 }
 
 void redraw() {
+  char str[50];
+  char nam[20];
+  strcpy_P(nam, (char *)pgm_read_word(&(progNam[prognum])));
+  sprintf(str, "Program %2u %s", prognum, nam);
   vt100Clrscr();
-  msgF(F("Program"), prognum);
+  Serial.println(str);
   showProg();
 }
 
