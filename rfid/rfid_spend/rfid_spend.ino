@@ -21,15 +21,12 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <EEPROM.h>
-#include <Servo.h>
 #include <SoftwareSerial.h>
 #include "helper.h"
 
 #define SS_PIN 10     //slave select
 #define RST_PIN 9     //reset 
 #define SOUND_PIN 8   // Beeper, high for sound
-#define SERVO1_PIN 7
-#define SERVO2_PIN 6
 #define HALT_PIN 5      // stop execution
 #define GO_PIN 4        // start, if pressed on boot run prog 1
 #define SWS_RX_PIN 3    // from bahn, orange
@@ -42,20 +39,17 @@ SoftwareSerial mySerial =  SoftwareSerial(SWS_RX_PIN, SWS_TX_PIN);
 int writeme = 0;          // if 1: write card
 bool verbo = false;
 bool check = false;       // auto-detect card in loop
-byte cardNo = 0;          // holds current cardno (for read and write)
+byte cardNo = 0;          // holds current cardno (read and to write)
 
 const byte anzServ = 2; //
-const byte servMap[anzServ] = {SERVO1_PIN, SERVO2_PIN};
-Servo myservo[anzServ];
-uint16_t serpos[anzServ]; // current position
-byte sersel = 0;          // selected Servo
-byte posp[anzServ];       // position
-const byte progLen = 48;
+//const byte progLen = 48;
+//byte prog[progLen];    // not used
+//byte progp = 0;        // not used
 const byte anzRum = 40;   // from Bahn
 char rum[anzRum];
 byte rumP = 0;
 bool bahnPending = false; // waiting for Exec complete
-#include "namen_spend.h"
+//#include "namen_spend.h"
 
 struct epromData {
   uint16_t pos[anzServ][10];
@@ -70,10 +64,69 @@ byte state;
 byte ablRaus = 1;           // next cardno to output
 byte ablZiel = 1;           // where to put
 
+void handleRum(char c) {
+  if (c == 10) return;
+  if (c != 13) {
+    rum[rumP] = c;
+    rumP++;
+    rum[rumP] = 0;
+    if (rumP < (anzRum - 2)) return;
+  }
+  Serial.print(">>");
+  Serial.println(rum);
+  if (strncmp(rum, "OK", 2) == 0) {
+    bahnPending = false;
+    Serial.println(F("weiter"));
+  }
+  rumP = 0;
+  rum[rumP] = 0;
+}
 
-#include "../../Bahn/texte.h"
-// Mini exec from bahn
+void doWait(bool lies) {
+  // if true tries to read card and sets cardNo
+  while (bahnPending) {
+    if (digitalRead(HALT_PIN) == LOW) {
+      state = 115;
+      return;
+    }
+    if (lies) {
+      if (mfrc522.PICC_IsNewCardPresent()) {
+        cardNo = newcard();
+      }
+    }
+    Serial.write('.');
+    delay(100);
+    while (mySerial.available() > 0) {
+      handleRum(mySerial.read());
+    }
+    if (digitalRead(GO_PIN) == LOW) {
+      bahnPending = false;
+      return;
+    }
+  }
+}
 
+void waitRum() {
+  doWait(false);
+}
+
+bool waitGreen() {
+  while (digitalRead(GO_PIN) == HIGH) {
+    Serial.println(F("Press Go"));
+    beep(10);
+    for (byte i = 0; i < 20; i++) {
+      if (digitalRead(HALT_PIN) == LOW) {
+        state = 115;
+        return false;
+      }
+      if (digitalRead(GO_PIN) == LOW) {
+        return true;
+      }
+      delay(10);
+    }
+  }
+  return true;
+}
 
 byte callBahn(byte lo) {
   // sends prog# to exec
@@ -81,6 +134,7 @@ byte callBahn(byte lo) {
   mySerial.print(lo);
   mySerial.print('z');
   bahnPending = true;
+  waitRum();
   return 0;
 }
 
@@ -89,19 +143,20 @@ byte posStepBahn(byte lo) {
   if (verbo) msgF(F("stepBahn"), lo);
   mySerial.print("0ea");
   mySerial.print(lo);
-  mySerial.print('#');
+  mySerial.print("#?");
   bahnPending = true;
+  waitRum();
   return 0;
 }
 
-void cleanAbl() {
+void cleanAblag() {
   for (byte i = 1; i < anzAbl; i++) {
     ablag[i] = 0;
   }
   ablRaus = 1;
 }
 
-void showAbl() {
+void showAblag() {
   for (byte i = 1; i < anzAbl; i++) {
     Serial.print(ablag[i]);
     Serial.print(" ");
@@ -109,286 +164,201 @@ void showAbl() {
   Serial.println();
 }
 
-byte freeAbl() {
-  // returns number to put, 0 not avail
+byte freeAblag() {
+  // returns number to put, 0 no avail
   for (byte i = 1; i < anzAbl; i++) {
     if (ablag[i] == 0) return i;
   }
   return 0;
 }
 
+byte maxAblag() {
+  // returns position of highest card in Ablage, 0 no avail
+  byte maxi = 0;
+  byte maxp = 0;
+  for (byte i = 1; i < anzAbl; i++) {
+    if (ablag[i] > maxi ) {
+      maxi = ablag[i];
+      maxp = i;
+    }
+  }
+  if (verbo) msgF(F("maxAbl"), maxi);
+  return maxp;
+}
+
+byte inAblag(byte n) {
+  // returns position of card n in Ablage, 0 no avail
+  for (byte i = 1; i < anzAbl; i++) {
+    if (ablag[i] == n ) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+byte handle3() {
+  // Neue Card bekannt,  Möglichkeiten: direkt raus, ablegen, direkt loopen, anderen loopen
+  if (ablRaus == cardNo) {
+    return  20;
+  }
+  ablZiel = freeAblag();
+  if (ablZiel == 0) {
+    return 10;
+  }
+  return 4;
+}
+
 void switchState(byte to) {
   msgF(F("State to"), to);
+  if (to == 3) {
+    to = handle3();
+    msgF(F("handle3 "), to);
+  }
   switch (to) {
     case 0:
-      cleanAbl();
       mySerial.print("V10_"); // klapp and delt
       callBahn(1);
-      state = 0;
       break;
     case 1:      // Position Stepper
       callBahn(2);
-      state = 1;
       break;
     case 2:   // read card
-      cardNo = doFeed(2);
+      doFeed(2);
       if (cardNo == 0) {
-        state = 101;
+        state = 40;
         return;
       }
-      // drei Möglichkeiten: ablegen, direkt loopen, anderen loopen
-      ablZiel = freeAbl();
+      break;
+    case 4:   // card  in tray
+      callBahn(12);
+      callBahn(3);
+      break;
+    case 5:     // ablegen
       if (ablZiel == 0) {
         state = 102;
         return;
       }
-      state=2;
-      break;
-    case 3:   // card  in tray
-      readProg(3, true); //schieb raus
-      execProg();
-      callBahn(3);
-      state = 3;
-      break;
-    case 4:     // ablegen 
       ablag[ablZiel] = cardNo;
       posStepBahn(ablZiel + 1); // #2..#6
       callBahn(4);
-      state = 4;
       break;
     case 6:     // aufnehmen
       callBahn(6);
-      state = 6;
+      break;
+    case 10:     // grössten von Abl
+      callBahn(10);
+      ablZiel = maxAblag();
+      if (ablZiel == 0) {
+        state = 103;
+        return;
+      }
+      break;
+    case 11:     // positioniere ablZiel
+      if (ablZiel == 0) {
+        state = 103;
+        return;
+      }
+      ablag[ablZiel] = 0;
+      posStepBahn(ablZiel + 1);
+      callBahn(6);
+      posStepBahn(1);
+      if (!waitGreen()) return;
+      callBahn(2); // feed position, cardNo in feeder
+      delay(300);
+      break;
+    case 20:   // card  in tray und raus
+      callBahn(12);
+      callBahn(3);
+      callBahn(7);
+      callBahn(8);
+      callBahn(9);
+      ablRaus += 1;
+      break;
+    case 21:   // check ob Ablraus in Ablage
+      ablZiel = inAblag(ablRaus);
+      if (ablZiel == 0) {
+        msgF(F("nicht in Ablag"), ablRaus);
+        state = 22;
+        return;
+      }
+      ablag[ablZiel] = 0;
+      posStepBahn(ablZiel + 1);
+      callBahn(6);
+      callBahn(7);
+      callBahn(8);
+      callBahn(9);
+      ablRaus += 1;
+      break;
+    case 40:   // read err (von 2)
+      msgF(F("rfidWakeup"), rfidWakeup());
+      cardNo = newcard();
+      if (cardNo > 0) {
+        state = 3;
+        return;
+      }
       break;
     default:
       msgF(F("State invalid"), to);
       state = 113;
       return;
   }
+  state = to;
 }
 
-void stater() {
+void stater(byte stasta) {
+  state = stasta - 1; //
+  msgF(F("stater"), state);
   while (state < 100) {
     if (digitalRead(HALT_PIN) == LOW) {
       state = 115;
       return;
     }
-    while (bahnPending) {
-      if (digitalRead(HALT_PIN) == LOW) {
-        state = 115;
-        return;
-      }
-      Serial.write('.');
-      delay(100);
-      while (mySerial.available() > 0) {
-        handleRum(mySerial.read());
-      }
-    }
-
-
+    waitRum();
     msgF(F("Current State "), state);
-
-    switchState(state + 1);
-  }
-}
-
-void selectServo(byte b) {
-  char str[50];
-  char nam[20];
-  if (b >= anzServ) b = anzServ - 1;
-  sersel = b;
-  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
-  Serial.println();
-  sprintf(str, "Servo %2u %s at %2u %4u", sersel, nam, posp[sersel], serpos[sersel]);
-  Serial.println(str);
-}
-
-void writeServo(byte senum, uint16_t wert) {
-  if (wert > mypos.pos[senum][9]) wert = mypos.pos[senum][9];
-  if (wert < mypos.pos[senum][0]) wert = mypos.pos[senum][0];
-  serpos[senum] = wert;
-  myservo[senum].write(wert);
-  if (verbo) msgF(F("writeServo"), wert);
-}
-
-void setServo(byte p) {
-  if (p < 10) {
-    posp[sersel] = p;
-    if (mypos.pos[sersel][p] <= mypos.pos[sersel][9]) {
-      msgF(F("Posi"), mypos.pos[sersel][p]);
-      writeServo(sersel, mypos.pos[sersel][p]);
-    } else {
-      msgF(F("Not servod "), p);
+    switch (state) {
+      case 3:
+        handle3();  // either 3,20
+        switchState(state);
+        break;
+      case 5:
+        switchState(1); //loop
+        break;
+      case 11:
+        switchState(3);
+        break;
+      case 21:
+        switchState(21);
+        break;
+      case 22:
+        switchState(1);
+        break;
+      case 40:
+        switchState(40);
+        break;
+      default:
+        switchState(state + 1);
     }
-  } else msgF(F("Invalid Position "), p);
-}
-
-byte exepSelServo(byte lo) {
-  if (lo >= anzServ) {
-    return 13;
-  }
-  sersel = lo;
-  return 0;
-}
-
-byte exepSetPos(byte lo) {
-  if (lo < 10) {
-    posp[sersel] = lo; //verwirrt?
-    writeServo(sersel, mypos.pos[sersel][lo]);
-    return 0;
-  }
-  switch (lo) {
-    case 0xE:   //
-      myservo[sersel].attach(servMap[sersel]);
-      break;
-    case 0xF:   //
-      myservo[sersel].detach();
-      break;
-    default:
-      msgF(F("Setpos not implemented "), lo);
-      return 1;
-  }
-  return 0;
-}
-
-byte exepSpecial(byte lo) {
-  switch (lo) {
-    case 0xA:   //
-      msgF(F("Mess A"), progp);
-      return 30;
-    case 0xB:   //
-      msgF(F("Mess B"), progp);
-      return 31;
-    case 0xC:   //
-      msgF(F("Mess C"), progp);
-      return 32;
-    case 0xD:   //
-      // msgF(F("EOP"), progp);
-      return 9;
-    case 0xE:   //
-      // msgF(F("EOP"), progp);
-      return 9;
-    case 0xF:   //
-      // msgF(F("EOP"), progp);
-      return 9;
-    default:
-      msgF(F("Special not implemented "), lo);
-  }
-  return 1;
-}
-
-byte exep2byte(byte lo) {
-  switch (lo) {
-    case 0:   //
-      delay(10 * prog[progp] - 1);
-      break;
-    default:
-      msgF(F("twobyte not implemented "), lo);
-      return 1;
-  }
-  progp++;
-  return 0;
-}
-
-byte execOne() {
-  byte lo, hi;
-  if (progp >= progLen) {
-    msgF(F(" ExecProg progp? "), progp);
-    return 10;
-  }
-  lo = prog[progp];
-  progp++;
-  hi = lo >> 4;
-  lo = lo & 0x0F;
-
-  switch (hi) {
-    case 1:   //
-      return exepSelServo(lo);
-    case 2:   //
-      return exepSetPos(lo);
-    case 0xB:   // Bahn!
-      return callBahn(lo);
-      break;
-    case 0xC:   // Bahn!
-      return posStepBahn(lo);
-      break;
-    case 0xE:   //
-      return exep2byte(lo);
-    case 0xF:   //
-      return exepSpecial(lo);
-    default:
-      msgF(F("Not implemented "), hi);
-      return 1;
-  } //case
-}
-
-byte execProg() {
-  byte err = 0;
-  char txt[40];
-  char str[50];
-  progp = 0;
-  traceLin = 255;
-  Serial.println();
-
-  while (err == 0) {
-    if (Serial.available() > 0) return 5;
-    if (digitalRead(HALT_PIN) == LOW) return 4;
-    if (progp != traceLin) {
-      traceLin = progp;
-      if (trace) {
-        decodProg(txt, progp);
-        sprintf(str, "%2u  %02X  %-10s", progp, prog[progp], txt);
-        Serial.println(str);
-      }
-    }
-    err = execOne();
-  } // while
-  return err;
-}
-
-void showPos() {
-  char str[50];
-  char nam[20];
-  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
-  Serial.println();
-  sprintf(str, "akt  %5u %s",  myservo[sersel].read(), nam);
-  Serial.println(str);
-  for (byte i = 0; i < 10; i++) {
-    sprintf(str, "%2u   %5u ", i, mypos.pos[sersel][i]);
-    Serial.println(str);
   }
 }
 
-byte doFeed(byte was) {
-  // return card # read else 0
+void doFeed(byte was) {
+  // sets cardNo # read else 0
   // was 1 lesen+raus,   2 lesen only
-  byte zwi;
-  byte card = 0;
-  readProg(2, true);
-  zwi = execProg();
-  msgF(F("exec2 is "), zwi);
-  if (zwi != 9) return 0;
-  // read?
-  if (mfrc522.PICC_IsNewCardPresent()) {
-    card = newcard();
-  } else {
-    msgF(F("doit no newcard"), 0);
-  }
-  if (was == 2) return card;
-  readProg(3, true);
-  zwi = execProg();
-  msgF(F("exec3 is "), zwi);
-  return card;
+  cardNo = 0;
+  mySerial.print("11z");
+  bahnPending = true;
+  doWait(true);
+  if (was == 2) return;
+  callBahn(12);
 }
 
 void prompt() {
   char str[50];
-  sprintf(str, "C%2u S%2u P%2u>", cardNo, state, bahnPending);
+  sprintf(str, "S%3u C%2u A%2u P%2u>", state, cardNo, ablZiel, bahnPending);
   Serial.print(str);
 }
 
 void docmd(byte tmp) {
-  byte zwi;
   if (doNum(tmp)) {
     Serial.print(char(tmp));
     return;
@@ -397,52 +367,44 @@ void docmd(byte tmp) {
   if (tmp == 0) return;
   switch (tmp) {
     case 'a':   //
-      prlnF(F("attached"));
-      myservo[sersel].attach(servMap[sersel]);
-      progge (0x2E);
       break;
-    case 'b':   //
-      beep(inp);
+    case 'A':   //
+      ablZiel = inp;
+      msgF(F("ablZiel"), ablZiel);
       break;
     case 'B':   //
-      beepErr(inp);
+      ablag[ablZiel] = inp;
+      Serial.println();
+      showAblag();
       break;
     case 'c':   //
       check = !check;
       if (check)  prlnF(F("Check an"));
       else        prlnF(F("Check aus"));
       break;
+    case 'C':   //
+      cardNo = inp;
+      msgF(F("cardNo"), cardNo);
+      break;
     case 'd':   //
-      prlnF(F("detached"));
-      myservo[sersel].detach();
-      progge (0x2F);
       break;
     case 'e':   //
-      selectServo(inp);
-      progge (0x10 + sersel);
       break;
     case 'f':   //
-      prlnF(F("Fetch"));
-      EEPROM.get(epromAdr, mypos);
-      showPos();
       break;
     case 'g':   //
-      zwi = execProg();
-      msgF(F("execProg is "), zwi);
       break;
     case 'h':   //
-      prlnF(F("write Pos"));
-      EEPROM.put(epromAdr, mypos);
       break;
     case 'i':   //
-      showPos();
-      showAbl();
+      showAblag();
       break;
     case 'j':   //
       switchState(inp);
       break;
     case 'J':   //
-      stater();
+      bahnPending = false;
+      stater(inp);
       break;
     case 'k':   //
       prlnF(F("Write off"));
@@ -456,37 +418,26 @@ void docmd(byte tmp) {
       newcard();
       break;
     case 'p':   //
-      writeServo(sersel, inp);
-      msgF(F("Servo"), serpos[sersel]);
       break;
     case 'q':   //
-      mypos.pos[sersel][0] = inp;
-      msgF(F("Min set"), inp);
       break;
     case 'Q':   //
-      mypos.pos[sersel][9] = inp;
-      msgF(F("Max set"), inp);
       break;
     case 'r':   //
-      readProg(inp, true);
-      showProg();
+      //readProg(inp, true);
+      //showProg();
       break;
     case 'R':   //
-      readProg(inp, false);
-      showProg();
+      //readProg(inp, false);
+      //showProg();
       break;
     case 's':   //
-      mypos.pos[sersel][posp[sersel]] = serpos[sersel];
-      showPos();
       break;
     case 't':   //
-      trace = !trace;
-      if (trace)   prlnF(F("Trace an"));
-      else         prlnF(F("Trace aus"));
       break;
     case 'u':   //
       msgF(F("rfidWakeup"), rfidWakeup());
-      newcard();
+      cardNo = newcard();
       break;
     case 'U':   //
       msgF(F("rfidReqA"), rfidReqA());
@@ -498,30 +449,20 @@ void docmd(byte tmp) {
       else        prlnF(F("Verbose aus"));
       break;
     case 'w':   //
-      writeProg(prognum);
+      //writeProg(prognum);
       break;
     case 'W':   //
-      writeProg(inp);
-      prognum = inp;
+      //writeProg(inp);
+      //prognum = inp;
       break;
     case 'x':   //
-      zwi = execOne();
-      if (zwi == 0) redraw();
-      else msgF(F("execOne is "), zwi);
       break;
     case 'y':   //
-      delatProg();
-      redraw();
       break;
     case 'z':   //
-      if (readProg(inp, true)) {
-        zwi = execProg();
-        msgF(F("execProg is"), zwi);
-      }
       break;
 
     case 13:
-      redraw();
       break;
     case '+':   //
       cardNo++;
@@ -531,41 +472,16 @@ void docmd(byte tmp) {
       cardNo--;
       cardNoChange();
       break;
-    case ',':   //
-      insProg(inp);
-      Serial.print(",");
-      return; //avoid prompt
-    case '.':   //
-      prog[progp] = byte(inp);
-      dirty = true;
-      redraw();
-      break;
-    case '#':   //
-      setServo(inp);
-      progge(0x20 + inp);
-      break;
-    case 193:   //up
-      progp -= 1;
-      redraw();
-      break;
-    case 194:   //dwn
-      progp += 1;
-      redraw();
+    case '?':   //
+      mySerial.write('?');
       break;
     case 228:   // ä
-      teach = !teach;
-      if (teach) {
-        prlnF(F("Teach an"));
-      } else {
-        prlnF(F("Teach aus"));
-        redraw();
-      }
       break;
     case 246:   // ö
-      callBahn(inp);
+      posStepBahn(inp);
       break;
     case 252:   // ü
-      posStepBahn(inp);
+      callBahn(inp);
       break;
     default:
       if (verbo) {
@@ -578,25 +494,6 @@ void docmd(byte tmp) {
   } //case
   prompt();
 }
-
-void handleRum(char c) {
-  if (verbo) Serial.println(uint8_t(c));
-  if (c == 10) return;
-  if (c != 13) {
-    rum[rumP] = c;
-    rumP++;
-    rum[rumP] = 0;
-    if (rumP < (anzRum - 2)) return;
-  }
-  Serial.print(">>");
-  Serial.println(rum);
-  rumP = 0;
-  if (strncmp(rum, "OK", 2) == 0) {
-    msgF(F(" ok erkannt"), 0);
-  }
-
-}
-
 
 void setup() {
   Serial.begin(38400);
@@ -628,17 +525,20 @@ void loop() {
     }
   }
 
-  if (Serial.available() > 0) {
-    Serial.println();
-    docmd( Serial.read());
-  }
-
   while (mySerial.available() > 0) {
     handleRum(mySerial.read());
   }
 
+  if (Serial.available() > 0) {
+    docmd(Serial.read());
+  }
+
   if (digitalRead(GO_PIN) == LOW) {
-    doFeed(3);
+    if (digitalRead(HALT_PIN) == LOW) {
+      doFeed(1);
+    } else {
+      prlnF(F("Press Red also"));
+    }
   }
 
   currMs = millis();

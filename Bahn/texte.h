@@ -233,7 +233,6 @@ void showProg() {
 
 void showProgX() {
   char str[10];
-  Serial.println();
   for (byte i = 0; i < progLen; i++) {
     sprintf(str, "%u,", prog[i]);
     Serial.print(str);
@@ -266,6 +265,32 @@ void writeProg(uint16_t  p) {
   }
 }
 
+void showAllProgX() {
+  Serial.println();
+  for (byte i = 0; i < 16; i++) {
+    readProg(i, false);
+    Serial.print(i);
+    Serial.print("R");
+    showProgX();
+  }
+}
+/*  conversion proglen
+void Prog4842() {
+  // read 48 write 42
+  uint16_t  p;
+  for (byte i = 0; i < 16; i++) {
+    Serial.print(i);
+    p = i * 48;
+    Serial.print(" read ");
+    Serial.print(p);
+    EEPROM.get(p, prog);
+    p = i * 42;
+    Serial.print(" write ");
+    Serial.println(p);
+    EEPROM.put(p, prog);
+  }
+}
+*/
 void redraw() {
   char str[50];
   char nam[20];
@@ -278,4 +303,20 @@ void redraw() {
 
 void progge(byte b) {
   if (teach) insProg(b);
+}
+
+void showPos() {
+  char str[50];
+  char nam[20];
+  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
+  sprintf(str, "Servo %2u %s at %1u ", sersel, nam, posp[sersel]);
+  Serial.print(str);
+  strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][posp[sersel]])));
+  sprintf(str, "%s (%u)", nam, serpos[sersel]);
+  Serial.println(str);
+  for (byte i = 0; i < 10; i++) {
+    strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][i])));
+    sprintf(str, "%2u   %5u  %s", i, mypos.pos[sersel][i], nam);
+    Serial.println(str);
+  }
 }

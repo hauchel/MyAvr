@@ -12,16 +12,16 @@
 //  for TWI //  A5 SCL yell   A4 SDA grn
 const byte anzServ = 8; // Serv 0 is always stepper
 //ovres: const byte servMap[anzServ] = {0, 5, 6};
-const byte progLen = 48;
+const byte progLen = 42;
 const byte anzIn = 5;   // Inputs
 const byte inMap[anzIn] = {2,    A3,   A2,   A1,   A0};
 const bool inInv[anzIn] = {true, true, true, true, true};
-byte inExec[anzIn] =      {0, 1, 2, 0, 0};  // >0 calls prog if pressed.
+byte inExec[anzIn] =      {0, 1, 2, 0, 0};  // >0 calls prog if pressed. //TODO
 bool inVal[anzIn];      // current value read
 const byte anzOut = 3;  // outputs
 const byte outMap[anzOut] = {13, 12, 11};
 byte delt = 4;
-
+bool isferdisch = false;
 bool verbo = false;     // toggle v   si verb   si verb   si verb
 bool silent = true;     // set by V   T  F   -> F  F   -> F   T   if silent all output starts with OK or ERR
 uint16_t serpos[anzServ]; // current position
@@ -113,22 +113,6 @@ void timServo(byte wert) {
 }
 
 #include "texte.h"
-
-void showPos() {
-  char str[50];
-  char nam[20];
-  strcpy_P(nam, (char *)pgm_read_word(&(servNam[sersel])));
-  sprintf(str, "Servo %2u %s at %1u ", sersel, nam, posp[sersel]);
-  Serial.print(str);
-  strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][posp[sersel]])));
-  sprintf(str, "%s (%u)", nam, serpos[sersel]);
-  Serial.println(str);
-  for (byte i = 0; i < 10; i++) {
-    strcpy_P(nam, (char *)pgm_read_word(&(posNam[sersel][i])));
-    sprintf(str, "%2u   %5u  %s", i, mypos.pos[sersel][i], nam);
-    Serial.println(str);
-  }
-}
 
 void showStack(byte dep) {
   char str[50];
@@ -566,6 +550,9 @@ void doCmd(byte tmp) {
     case 'b':   //
       showProgX();
       break;
+    case 'B':   //
+      showAllProgX();
+      break;
     case 'c':   //
       progp = inp;
       redraw();
@@ -716,6 +703,9 @@ void doCmd(byte tmp) {
       setServo(inp);
       progge(0x20 + inp);
       break;
+    case '?':   //
+      isferdisch = true;
+      break;
     case ',':   //
       insProg(inp);
       Serial.print(",");
@@ -790,12 +780,22 @@ void loop() {
     doCmd( Serial.read());
   } // serial
 
-  currMs = millis();
+  if (isferdisch) {
+    if ((tim2Count == 0) and (!movOn)) {
+      isferdisch = false;
+      Serial.println("OK");
+    }
+  }
 
+  currMs = millis();
   if (currMs - prevMs >= tickMs) {
     if (movOn) handleMov();
     prevMs = currMs;
     einles();
+    if (inVal[3]) { // Nothalt
+      detachAllServo();
+      prlnF(F("ERR all detached"));
+    }
   } // timer
 
 }
