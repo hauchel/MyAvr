@@ -1,6 +1,7 @@
 // learning timer2
 
 #include "helper.h"
+//#include <EEPROM.h>
 
 const byte poc2A = 11; // pb3
 const byte poc2B = 3;  // pd3
@@ -12,8 +13,19 @@ byte tim2cs = 6;    // value of TCCR2B i.e. clock select, 6 = /256
 byte tim2cmoA = 1;  // compare Match Output A 0..3 to  TCCR2A
 byte tim2cmoB = 2;  // compare Match Output B 0..3 to  TCCR2A
 byte tim2ocie = 0;  // interrupt enable to TIMSK2
-byte wgm01 = 3;     // to TCCR2A
-byte wgm2  = 8;     // to TCCR2B
+byte tim2wgm = 7;     // to TCCR2A and TCCR2B
+
+typedef struct { // params
+  byte magic = 42;
+  byte cs = 7;
+  byte cmoA = 1;
+  byte cmoB = 2;
+  byte ocie = 0;
+  byte wgm = 7;
+  byte oc2a = 77;
+  byte oc2b = 60;
+} lad_t;
+lad_t lad;
 
 bool autoOn = false; //
 
@@ -23,14 +35,13 @@ void timer2Init() {
   // 7      6       5       4       3       2       1       0
   // COM2A1 COM2A0  COM2B1  COM2B0  –       –       WGM21   WGM20   TCCR2A
   //    cmoA            cmoB        0       0       w       w
-  TCCR2A =  (tim2cmoA << 6) | (tim2cmoB << 4) | wgm01;
+  TCCR2A =  (tim2cmoA << 6) | (tim2cmoB << 4) | (tim2wgm & 3);
   // FOC2A  FOC2B   –       –       WGM22   CS22    CS21    CS20    TCCR2B
   // 0      0       0       0       w       c       c       c
-  TCCR2B = tim2cs | wgm2;
+  TCCR2B = tim2cs | ((tim2wgm << 1) & 8);
   //                                        OCIE2B  OCIE2A  TOIE2   TIMSK2
   // 0      0       0       0       0       o       o       o
   TIMSK2 = tim2ocie;                                    // enable Timer interrupts
-  TCNT2  = 0;
   sei();  //set global interrupt flag to enable interrupts
 }
 
@@ -60,6 +71,20 @@ void showRegs() {
 }
 
 
+void explainRegs() {
+  char str[80];
+  byte t, wgm, comA, comB, cs;
+  t = TCCR2A;
+  wgm = t & 3;
+  comA = t  >> 6;
+  comB = (t >> 4) & 3;
+  t = TCCR2B;
+  cs = t & 7;
+  wgm |= ((t >> 1) & 4);
+  sprintf(str, "wgm %3u, cs %3u, comA %2u, comB %2u", wgm, cs, comA, comB);
+  Serial.println(str);
+}
+
 void help () {
   Serial.println (F("Running in Fast PWM wgm=7"));
   Serial.println (F("_a  set OCR2A to change freq"));
@@ -74,6 +99,7 @@ void help () {
   Serial.println (F("r   set low"));
   Serial.println (F("s   set high"));
   Serial.println (F("_t  tick time in ms"));
+  Serial.println (F("_w  set wgm 0..7"));
   Serial.println (F("x   eXec one capture"));
   Serial.println (F("y   toggle auto-capture"));
 }
@@ -125,11 +151,12 @@ void doCmd(char x) {
       break;
     case 'i':
       timer2Init();
+      explainRegs();
       msgF(F("TCCR2A"), TCCR2A);
       msgF(F("TCCR2B"), TCCR2B);
       break;
     case 'o':
-      TCCR2B = 128 + 64 + wgm2 + tim2cs;
+      TCCR2B = 128 | 64 | ((tim2wgm << 1) & 8) | tim2cs;
       msgF(F("FOC"), TCCR2B);
       break;
     case 'p':
@@ -151,6 +178,11 @@ void doCmd(char x) {
       tickMs = inp;
       msgF(F("tickMs"), inp);
       break;
+    case 'w':
+      tim2wgm = inp & 7;
+      timer2Init();
+      msgF(F("wgm"), tim2wgm);
+      break;
     case 'x': //ICP
       InputCapture_out();
       break;
@@ -171,7 +203,7 @@ void setup() {
   Serial.println(info);
   pinMode(poc2A, OUTPUT);
   pinMode(poc2B, OUTPUT);
-  OCR2A = 100;
+  OCR2A = 77;
   OCR2B = 60;
   timer2Init();
   tickMs = 1000;

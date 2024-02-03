@@ -1,20 +1,9 @@
 /* Sketch  to play with WS2812 LEDs
    based on driver discussed and made by Tim in http://www.mikrocontroller.net/topic/292775
-   addapted for Arduino Uno by chris 30.7.2013
-
-  Commands read via serial, from and to EEprom:
+   Commands read via serial, from and to EEprom:
    tick Command
-
-
 */
-#include <edilib.h>
-Edi edi;
-bool ediMode = false;
 #include <EEPROM.h>
-uint16_t eadr;
-uint16_t eadrM = 1024;
-const byte ekeyU = 255;
-const byte ekeyE = 254;
 
 #define LEDNUM 24           // Number of LEDs in stripe
 #define ws2812_port PORTB   // Data port register
@@ -28,24 +17,38 @@ byte colM = 6; // 0 to 5
 byte rowM = 4;
 int befP = 0;
 byte   pix[3];                // current pixel
+byte   apix[3];               // analog pixel
+
 byte   ptmp[3];               // temp for shifts
-uint8_t   intens[3];          // (max) intensity
+uint8_t   intens[3];          // (max) intensity not used
 uint8_t   curr = 0;           // current color selected (0,1,2)
 uint8_t   progCnt;            // step in program counts down to 0
 char      progMode;           // mode in program
 bool      debug;              // true if
 uint8_t   runMode;            // 0 normal, 1 single step, 2 ss triggered
-char    bef[100];
+char    bef[100];             // commands to be executed
 bool      upd;                // true refresh disp
+
 uint16_t inp;                 // numeric input
 bool inpAkt = false;          // true if last input was a number
-bool inpExt = false;          // true if last input was an extended
+const byte inpSM = 5;          //
+uint16_t inpStck[inpSM];      // Stack for inps
+byte  inpSP = 0;              // Pointer
+const byte memoM = 10;        // Memory for inps
+uint16_t memo[memoM];         //
+
+
 bool verb = false;            // verbose
 byte led = 0;
 unsigned long currTim;
 unsigned long prevTim = 0;
 unsigned long tick = 100;     //
 int tickW = 0;               // wait ticks
+uint16_t eadr;
+uint16_t eadrM = 1024;
+const byte ekeyU = 255;
+const byte ekeyE = 254;
+
 const char *befehle[] = { "1X2X3X",
                           "20rg0b",
                           "0l1t4l1t8l1t12l16l20l",
@@ -56,13 +59,11 @@ const char *befehle[] = { "1X2X3X",
 const byte befM = 6;
 int befNum;
 bool befAktiv = false;
-const byte stackM = 6;
-byte stackP = 0; // points to next free
+const byte stackM = 6;      // Stack for prog exec
+byte stackP = 0;            // points to next free
 int stackBefP[stackM];
 int stackBefNum[stackM];
 int au, ao, ug, og;          // temps for shift
-uint8_t   glePtr;                // gledi Input
-uint8_t   glePtrM;              // update after
 
 void msg(const char txt[], int n) {
   if (verb) {
@@ -70,6 +71,15 @@ void msg(const char txt[], int n) {
     Serial.print(" ");
     Serial.println(n);
   }
+}
+
+void err(const char txt[], int n) {
+  // stop execution
+  befAktiv = false;
+  Serial.print("Err: ");
+  Serial.print(txt);
+  Serial.print(" ");
+  Serial.println(n);
 }
 
 void initEprom() {
@@ -89,17 +99,18 @@ bool searchEprom(byte key) {
   }
 }
 
-void listEprom() {
+void showEprom() {
   byte key, ofs, b;
   char str[100];
   uint16_t ea;
   eadr = 0;
+  Serial.println(" EPROM:");
   while (eadr < eadrM) {
     key = EEPROM.read(eadr) ;
     if (key == ekeyU) return;
     eadr++;
     ofs = EEPROM.read(eadr);
-    sprintf(str, "key %4u ofs %4u  eadr %4u  ", key, ofs, eadr);
+    sprintf(str, "eadr %4u ofs %3u key %3u  >", eadr, ofs, key);
     Serial.print(str);
     ea = eadr + 1;
     eadr = eadr + ofs;
@@ -119,7 +130,7 @@ void listEprom() {
 void delEprom(byte key) {
   byte i, b;
   if (!searchEprom(key)) {
-    msg ("Del not found", key);
+    err ("Del not found", key);
     return;
   }
   EEPROM.write(eadr, ekeyE) ;
@@ -129,7 +140,7 @@ void delEprom(byte key) {
 bool readEprom(byte key) {
   byte i, b;
   if (!searchEprom(key)) {
-    msg ("Not found", key);
+    err ("Not found", key);
     return false;
   }
   eadr = eadr + 2;
@@ -141,7 +152,7 @@ bool readEprom(byte key) {
       return true;
     }
   }
-  msg ("read E Err ", i);
+  err ("read E ", i);
   bef[i] = 0;
   return false;
 }
@@ -158,7 +169,7 @@ void writeEprom(byte key) {
     sprintf(str, "Exist key %3u len %3u free %4u ", key, len, ofs );
     Serial.println(str);
     if (len > ofs) {
-      msg("Del me first", len);
+      err("Del me first", len);
       return;
     }
   } else {
@@ -179,42 +190,6 @@ void writeEprom(byte key) {
 }
 
 
-void gledi() {
-  glePtrM = ARRAYLEN;
-  glePtr = 0; // called after 01;
-  char b;
-  unsigned long sendTim = 0;
-  unsigned long nowTim = 0;
-  // wait for 01, then fill, after full send
-  sendTim = millis();
-  while (true) {
-    if (Serial.available() > 0) {
-      b = Serial.read();
-      if (glePtr >= glePtrM) {
-        if (b == 1) {
-          glePtr = 0;
-        }
-      } else {
-        ledArray[glePtr] = b;
-        glePtr++;
-        if (glePtr >= glePtrM) {
-          ws2812_sendarray(ledArray, ARRAYLEN);
-          sendTim = millis();
-        }
-      }
-    } else { // nothing to do
-      nowTim = millis();
-      if (nowTim - sendTim >= 200) {
-        ledArray[0] = 25; //"Alles im grünen Bereich"
-        ledArray[1] = 0;
-        ledArray[2] = 0;
-        ws2812_sendarray(ledArray, ARRAYLEN);
-        return;
-      }
-    }
-  }
-}
-
 void prog1_init() {
   // when resetting prog1
   ledArray[0] = 25; //"Alles im grünen Bereich"
@@ -228,7 +203,6 @@ void prog1_init() {
   runMode = 0;
 }
 
-
 void dark() {
   // all values zero
   for (int i = 0; i < ARRAYLEN; i++) {
@@ -238,9 +212,7 @@ void dark() {
 }
 
 void setPix() {
-  for (byte i = 0; i < 3; i++) {
-    pix[i] = intens[i];
-  }
+  pix[curr] = inp;
   upd = true;
 }
 
@@ -248,7 +220,7 @@ void pix2arr(int a) {
   // array led a to  pix
   a = a * 3;
   if (a >= ARRAYLEN) {
-    msg("pix2arr Range", a);
+    err("pix2arr Range", a);
     a = 0;
   }
   ledArray[a] = pix[0];
@@ -281,6 +253,27 @@ void tmp2arr(int a) {
   ledArray[a + 2] = ptmp[2];
 }
 
+
+bool analo() {
+  int t;
+  bool chg = false;
+  t = analogRead(A0) / 4;
+  if (apix[0] != t) {
+    apix[0] = t;
+    chg = true;
+  }
+  t = analogRead(A1) / 4;
+  if (apix[1] != t) {
+    apix[1] = t;
+    chg = true;
+  }
+  t = analogRead(A2) / 4;
+  if (apix[2] != t) {
+    apix[2] = t;
+    chg = true;
+  }
+  return chg;
+}
 
 void calcau(byte col) {
   if (col >= colM) {
@@ -332,10 +325,6 @@ void fillArr() {
   upd = true;
 }
 
-void setIntens(uint8_t val) {
-  intens[curr] = val;
-  pix[curr] = val;
-}
 
 void setProgMode(char x) {
 }
@@ -353,23 +342,48 @@ void help() {
 
 void info() {
   char str[100];
-  sprintf(str, "RM %1u akt %1u befN %2u befP %2d Stp %2u Inp %4u Led %3u pix R%3u G%3u B%3u >", runMode, befAktiv, befNum, befP, stackP, inp, led, pix[1], pix[0], pix[2]);
+  sprintf(str, "RM %1u akt %1u befN %2u befP %2d Stp %2u Inp %4u Led %3u pix R%3u G%3u B%3u ", runMode, befAktiv, befNum, befP, stackP, inp, led, pix[1], pix[0], pix[2]);
   Serial.print(str);
-  Serial.println(bef);
+  showBef();
 }
 
+void showBef() {
+  Serial.print(">");
+  Serial.print(bef);
+  Serial.println("<");
+}
+
+void seriBef() {
+  // blocking read Bef
+  byte i;
+  char b;
+  Serial.print("Bef :");
+  for (i = 0; i < 50; i++) {
+    while (Serial.available() == 0) {
+    }
+    b = Serial.read() ;
+    Serial.print(b);
+    if (b == 13) {
+      bef[i] = 0;
+      return;
+    }
+    bef[i] = b;
+  } // loop
+  err ("Seri ", i);
+  bef[i] = 0;
+}
 
 void copyBef(int num) {
   strcpy(bef, befehle[num]);
-  Serial.println(bef);
 }
+
 
 void los(int num) {
   msg("Los ", num);
   if (num >= 0) {
     push();           // store  current
     if (!readEprom(num)) {
-      befAktiv = false;
+      err("not in Eprom", num);
       return;
     }
     befP = -1;
@@ -382,10 +396,10 @@ void los(int num) {
 
 void showStack() {
   char str[100];
-
+  Serial.println(" Progstack:");
   for (int i = 0; i < stackM; i++) {
     if (i == stackP) {
-      Serial.println("----");
+      Serial.println("^^^^");
     }
     sprintf(str, "%2u N %2u P %2u", i, stackBefNum[i], stackBefP[i]);
     Serial.println(str);
@@ -411,53 +425,78 @@ void pop() {
     befP = stackBefP[stackP] + 1;
     readEprom(stackBefNum[stackP]);
   } else {
-    befAktiv = false;
-    msg("stack Underflow", 0);
+    err("stack Underflow", 0);
+  }
+}
+
+void inpPush() {
+  msg("inpPush ", inpSP);
+  if (inpSP >= inpSM) {
+    err("inp Overflow", inpSP);
+  } else {
+    inpStck[inpSP] = inp; // is inc'd on pop
+    inpSP++;
+  }
+}
+
+uint16_t inpPop() {
+  msg("inpPop", inpSP);
+  if (inpSP > 0) {
+    inpSP --;
+    return inpStck[inpSP];
+  } else {
+    err("inpstack Underflow", 0);
+    return 0;
+  }
+}
+
+void inp2Memo() {
+  msg("inp2Memo ", inp);
+  if (inp > memoM) {
+    err("memo ", inp);
+  } else {
+    memo[inp] = inpPop();
+  }
+}
+
+void memo2Inp() {
+  msg("memo2Inp ", inp);
+  if (inp > memoM) {
+    err("memo ", inp);
+  } else {
+    inp = memo[inp];
+  }
+}
+
+void inpShow() {
+  char str[100];
+  Serial.print(" inp=");
+  Serial.println(inp);
+  for (byte i = 0; i < inpSM; i++) {
+    if (i == inpSP) {
+      Serial.println("^^^^");
+    }
+    sprintf(str, "%2u  %5u ", i, inpStck[i]);
+    Serial.println(str);
+  }
+  Serial.println("Memo:");
+  for (byte i = 0; i < memoM; i++) {
+    sprintf(str, "%2u  %5u ", i, memo[i]);
+    Serial.println(str);
   }
 }
 
 
-void statusLine() {
-  char str[100];
-  edi.esc('s');
-  edi.cursHome();
-  int f = 0;
-  sprintf(str, "M %1u X %2u of %2u esc %1u Bef %2u >", ediMode, edi.xPos, edi.xLen, edi.escSeq, befNum);
-  Serial.print(str);
-  edi.esc('K');
-  edi.esc('u');
-}
 
 char doCmd(char tmp) {
   bool weg = false;
-
-  if (ediMode) {
-    tmp = edi.inp(tmp);
-    switch (tmp) {
-      case 13: //
-        ediMode = false;
-        strcpy (bef, edi.lin);
-        Serial.println();
-        msg ("Edi done:", edi.xLen);
-        break;
-      case 28:  // expect more
-        break;
-      case 29:
-        msg(" edi retErr", 0);
-        break;
-    }
-    return tmp;
-  }
 
   // handle numbers
   if ( tmp == 8) { //backspace removes last digit
     weg = true;
     inp = inp / 10;
-  } else  if (tmp == '+') {
+  } else  if (tmp == '#') {
     inp++;
-    weg = true;
-  } else  if (tmp == '-') {
-    inp--;
     weg = true;
   }
   if ((tmp >= '0') && (tmp <= '9')) {
@@ -480,37 +519,49 @@ char doCmd(char tmp) {
   // handle combined copy shift ...
 
   switch (tmp) {
-    case 1:
-      gledi();
+    case '?':   //
+      inpShow();
+      break;
+    case ',':   //
+      inpPush();
+      break;
+    case '>':   //
+      inp2Memo();
+      break;
+    case '<':   //
+      memo2Inp();
+      break;
+    case '+':   //
+      inp = inp + inpPop();
+      break;
+    case '-':   //
+      inp = inpPop() - inp;
+      break;
     case 'a':   // avanti!
       runMode = 0;
       msg("runmode", runMode);
       break;
     case 'b':   // set blue (2)
       curr = 2;
-      setIntens(inp);
       setPix();
       msg(" b ", inp);
       break;
     case 'c':   // cycle
       setProgMode(tmp);
       break;
-    case 'd':   // set all 0
+    case 'd':   //
       shiftDown(inp);
       msg(" dwn ", inp);
       break;
-    case 'e':   //
-      strcpy (edi.lin, bef);
-      edi.startEdi();
-      ediMode = true;
-      befAktiv = false;
+    case 'e':   // edit bef
+      seriBef();
+      showBef();
       break;
     case 'f':   // fill
       fillArr();
       break;
     case 'g':   // set green (0)
       curr = 0;
-      setIntens(inp);
       setPix();
       msg(" g ", inp);
       break;
@@ -531,26 +582,31 @@ char doCmd(char tmp) {
       pix2arr(led);
       msg(" Led ", led);
       break;
+    case 'L':   //
+      inp = led;
+      break;
     case 'm':   //
       if (readEprom(inp)) {
-        Serial.print(bef);
-        Serial.println("<");
+        showBef();
       } else {
-        msg("Not found", inp);
+        err("Not found", inp);
       }
       break;
     case 'M':   //
-      listEprom();
+      showEprom();
       break;
     case 'n':   //
       copyBef(inp);
+      showBef();
+      break;
+    case 'o':   //
+      showBef();
       break;
     case 'p':
       pop();
       break;
     case 'r':   // set red (1)
       curr = 1;
-      setIntens(inp);
       setPix();
       msg(" r ", inp);
       break;
@@ -590,10 +646,10 @@ char doCmd(char tmp) {
     case 'W':   //
       delEprom(inp);
       break;
-    case 'x':  // exec Bef
+    case 'X':  // exec Bef
       los(-1);
       break;
-    case 'X':  // gosub
+    case 'x':  // gosub
       los(inp);
       break;
     case 'y':  // stop
@@ -616,29 +672,27 @@ char doCmd(char tmp) {
 
 void setup() {
   const char ich[] = "ws2812Top " __DATE__  " " __TIME__;
-  //Serial.begin(38400);
-  Serial.begin(115200); // wg. gledi
+  Serial.begin(38400);
   Serial.println(ich);
   pinMode(ws2812_out, OUTPUT);
   debug = false;
-  ediMode = false;
   prog1_init();
 }
 
 void loop() {
-  char adr;
-
+  char c;
   currTim = millis();
-
   if (Serial.available() > 0) {
-    doCmd(Serial.read());
+    c = Serial.read();
+    Serial.print(c);
+    doCmd(c);
   }
 
   if (befAktiv) {
     if (tickW == 0) {
-      adr = bef[befP];
+      c = bef[befP];
       if (runMode != 2) {
-        if (adr == 0) {
+        if (c == 0) {
           msg ("bef done ", befP);
           inpAkt = false ; // just in case...
           if (stackP > 0) {
@@ -649,7 +703,7 @@ void loop() {
             Serial.println ("Finished ");
           }
         }  else {
-          doCmd(adr);
+          doCmd(c);
           befP++;
           if (runMode == 1) {
             runMode = 2;
@@ -673,13 +727,12 @@ void loop() {
     }
   }
 }
-/*****************************************************************************************************************
 
+/*
    Led Driver Source from
    https://github.com/cpldcpu/light_ws2812/blob/master/light_ws2812_AVR/light_ws2812.c
    Author: Tim (cpldcpu@gmail.com)
-
- *****************************************************************************************************************/
+*/
 void ws2812_sendarray_mask(uint8_t *, uint16_t , uint8_t);
 
 void ws2812_sendarray(uint8_t *data, uint16_t datlen)
@@ -687,24 +740,6 @@ void ws2812_sendarray(uint8_t *data, uint16_t datlen)
   ws2812_sendarray_mask(data, datlen, _BV(ws2812_pin));
 }
 
-/*
-    This routine writes an array of bytes with RGB values to the Dataout pin
-  using the fast 800kHz clockless WS2811/2812 protocol.
-  The order of the color-data is GRB 8:8:8. Serial data transmission begins
-  with the most significant bit in each byte.
-  The total length of each bit is 1.25µs (20 cycles @ 16Mhz)
-   At 0µs the dataline is pulled high.
-   To send a zero the dataline is pulled low after 0.375µs (6 cycles).
-   To send a one the dataline is pulled low after 0.625µs (10 cycles).
-  After the entire bitstream has been written, the dataout pin has to remain low
-  for at least 50µs (reset condition).
-  Due to the loop overhead there is a slight timing error: The loop will execute
-  in 21 cycles for the last bit write. This does not cause any issues though,
-  as only the timing between the rising and the falling edge seems to be critical.
-  Some quick experiments have shown that the bitstream has to be delayed by
-  more than 3µs until it cannot be continued (3µs=48 cyles).
-
-*/
 void ws2812_sendarray_mask(uint8_t *da2wd3ta, uint16_t datlen, uint8_t maskhi)
 {
   uint8_t curbyte, ctr, masklo;
@@ -714,9 +749,7 @@ void ws2812_sendarray_mask(uint8_t *da2wd3ta, uint16_t datlen, uint8_t maskhi)
   noInterrupts(); // while sendig pixels
   while (datlen--)
   {
-
     curbyte = *da2wd3ta++;
-
     asm volatile(
       " ldi %0,8 \n\t"   // 0
       "loop%=:out %2, %3 \n\t"   // 1

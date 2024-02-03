@@ -504,7 +504,7 @@ char doCmd(char tmp) {
       readEprom(inp);
       break;
     case 'n':   //
-      copyreadEprom(inp);
+      readEprom(inp);
       break;
     case 'r':   // set red (1)
       curr = 1;

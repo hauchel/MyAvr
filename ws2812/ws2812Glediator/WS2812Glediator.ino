@@ -2,7 +2,7 @@
   frame is   01 g r b g r b ...
   Read via serial, for 25 fps (= 40 ms/frame) and (24 LEDs * 3) * 10 < 20000 bit/sec , so 115200 is sufficient
   Transfer time to ws is 24*3*8*1.25 us = 0.72 ms, no ints allowed
-  In jinx  use 72 channels then output fastpatch grb first channel 0 
+  In jinx  use 72 channels then output fastpatch grb first channel 0
 */
 
 #define LEDNUM 24           // Number of LEDs in stripe
@@ -14,8 +14,8 @@
 
 uint8_t   ledArray[ARRAYLEN + 3]; // Buffer GRB plus one pixel
 uint8_t   pix[3];             // current pixel
-uint8_t   glePtr;                // Input
-uint8_t   glePtrM;              // update after
+uint8_t   glePtr;             // Input
+uint8_t   glePtrM;            // update after
 
 void fillArr() {
   byte j = 0;
@@ -39,7 +39,7 @@ void setup() {
   fillArr();
   ws2812_sendarray(ledArray, ARRAYLEN);
   glePtrM = ARRAYLEN;
-  glePtr=glePtrM+1;
+  glePtr = glePtrM + 1;
 }
 
 void loop() {
@@ -61,7 +61,7 @@ void loop() {
       }
     }
   } else { // nothing to do
-    
+
   }
 
 }
