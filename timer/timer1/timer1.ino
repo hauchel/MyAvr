@@ -40,7 +40,7 @@ typedef union {
   uint32_t za32;
   uint16_t za16[2];
 } zahl_t;
-const byte ripuM = 16;
+const byte ripuM = 32;
 zahl_t ripu[ripuM];
 byte volatile ripuP = 0; // pointer, also used to stop recording when >=ripuM
 
@@ -104,9 +104,10 @@ ISR(TIMER1_CAPT_vect) {
 }
 
 void writeKonfig(byte n) {
-  int ea = n * 20;
+  int ea = n * 40;
   uint16_t t;
   msgF(F("write "), n);
+  EEPROM.update(ea, 42); ea++;
   EEPROM.update(ea, tim1WGM); ea++;
   EEPROM.update(ea, tim1CS); ea++;
   EEPROM.update(ea, tim1COM1A); ea++;
@@ -114,20 +115,22 @@ void writeKonfig(byte n) {
   EEPROM.update(ea, tim1TIMSK1); ea++;
   EEPROM.update(ea, tim1IC); ea++;
   t = OCR1A;
-  msgF(F("wri1 OC1A "), t);
   EEPROM.put(ea, t); ea += 2;
   t = OCR1B;
   EEPROM.put(ea, t); ea += 2;
+  EEPROM.put(ea,uspt); ea += 4;
   msgF(F("adr "), ea);
-  t = OCR1A;
-  msgF(F("wri2 OC1A "), t);
-
 }
 
 void readKonfig(byte n) {
-  int ea = n * 20;
+  int ea = n * 40;
   uint16_t t;
   msgF(F(":read "), n);
+  t = EEPROM.read(ea); ea++;
+  if (t != 42) {
+    msgF(F("Invalid Konfig "), t);
+    return;
+  }
   tim1WGM = EEPROM.read(ea); ea++;
   tim1CS = EEPROM.read(ea); ea++;
   tim1COM1A = EEPROM.read(ea); ea++;
@@ -138,8 +141,8 @@ void readKonfig(byte n) {
   msgF(F("rea OC1A "), t);
   OCR1A = t;
   EEPROM.get(ea, t); ea += 2;
-  msgF(F("rea OC1B "), t);
   OCR1B = t;
+  EEPROM.get(ea,uspt); ea += 4;
   msgF(F("adr "), ea);
 }
 
@@ -188,6 +191,8 @@ void explainRegs() {
 
 void showRipu() {
   char str[120];
+  char strd[20];
+  char strf[20];
   long delt, avg;
   long dif;
   float zwi = us2cs();
@@ -222,10 +227,11 @@ void showRipu() {
     } else {
       Serial.print(str);
       dauer = zwi * delt;
-      Serial.print(dauer, 3);
+      dtostrf(dauer, 9, 3, strd);
       dauer = 1000000.0 / dauer; // freq
-      Serial.print("   ");
-      Serial.println(dauer, 3);
+      dtostrf(dauer, 9, 3, strf);
+      sprintf(str, " %s  %s", strd, strf);
+      Serial.println(str);
     }
   }
 }
