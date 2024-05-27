@@ -1,14 +1,16 @@
-https://www.tweaking4all.com/hardware/arduino/adruino-led-strip-effects/
-https://adrianotiger.github.io/Neopixel-Effect-Generator/
-https://www.instructables.com/id/NeoPixel-Pattern-Programmer/
 
-Ziel Agenten-gesteuerte LED-Effekte
+Ziel LED-Effekte auf 256 LEDs mit ATMega 328
 zur Ablaufgestaltung  Terminal erforderlich
 zur Ausführung reicht RC5 Fernbedienung 
+
+Cheatsheet:
+assign: par,bef,dlt,ag a
+to memo: val,mem >
 
 Ablauf: rudimentärer Code zu Ablaufsteuerung
 Stark gewöhnungsbedürftig da reverse Notation, d.h erst Parameter dann Befehl.
 Jeder Befehl ist nur ein Zeichen, das reduziert den Schreib/Speicheraufwand und trainiert das Hirn.
+
 
 Register inp:
 Das Register inp enthält int, gesetzt durch Ziffer,#,BS
@@ -22,19 +24,21 @@ Beispiel:
 98 2			; inp ist 2
 7#				; inp ist 8
 
+Nummerierung der Leds
+gespeichert werden 256*3 GRBs so wie sie rausgeschoben werden.
+Dummerweise ist 0..7 15..8, d.h. arrpos() rechnet entsprechend um
 Pixel:
-Ein pix	enhält RGB-Werte (0 bis 255) 
+pix				enhält RGB-Werte (0 bis 255), quasi Stiftfarbe 
 r g b 			setzt diese Werte auf inp
 R G B				setzt inp auf r oder g  oder b von pix
-l	(LED) 		überträgt pix -> LED[inp]
+l	(LED) 		überträgt pix -> LED[inp] 
 L				überträgt LED[inp] nach pix
 f	(fill) 		füllt alle LEDs mit pix
 z	(zero) 		füllt alle LEDs mit 0/0/0
-Beachte dass inp zwischen Befehlen erhalten bleibt, erst wenn wieder Ziffer oder # wird es geändert.
+Beachte, dass inp zwischen Befehlen erhalten bleibt, erst wenn wieder Ziffer oder # wird es geändert.
 Beispiel:
-z10r4l#l##l		; Löscht alle LEDs, 4,5,7 auf wenig rot
+z10r0gb4l#l##l			; Löscht alle LEDs, 4,5,7 auf wenig rot
 255rgbf			; Fernlicht / Test Spannungsversorgung
-af				; liest Analog 0,1,2 und setzt RGB aller LEDs auf eingelesene Werte(0..1023) / 4 
 
 10 verschiedene RGB Werte können im color-Array[0..9] abgelegt werden
 c 				pix <- color(inp)
@@ -49,63 +53,58 @@ V    			toggle echo von erhaltenen Zeichen
 CR				zeige wichtigste Infos:  ... Inp     7 Led   7 pix R 10 G  0 B 26  ...
 ?				(siehe unten) zeige alle stacks und den loop-Status, memo nur wenn != 0
 
-Der Pix-Stack dient dazu, LED-Werte zu sichern um sie nachher wieder herzustellen.
-D				pusht r,g,b von LED(inp) und inp auf den Pix-Stack
-d				stellt diese LED-Werte wieder her (pull). 
-Beispiel:
-5Dl3c...d	sichere LED 5, setze auf Farbe 3, d stellt LED 5 wieder her.
-
-Ein Ablauf ist eine Folge von Befehlen in dem Null-terminated String bef[].
+Ein Ablauf ist eine Folge von Befehlen in dem Null-terminated String bef[] max len 127.
 Diese werden im Flash oder im Arduino Sourcecode (befehle[]) gespeichert.
-m (memory) 			bef <- Flash-Paget mit key inp (1..249) (befnum>0)
-n				bef <- befehle[inp] aus Sourcecode (0..pgmbefM) (befnum<0)
-M 				zeige Eprom-Inhalte
-I				initialisiere Eprom (schreibt nur ein byte, undo möglich s.u.)
-w (write)			schreibe bef-> Flash mit key inp
-
+Technisch sind 0..39 (pgmbefM=40) fest programmiert myBefs.h, 40.. in Flash 40-> Page 1. Jeder befehl wird in SPM_PAGESIZE = 128 byte abgelegt
+m (memory) 		bef <- Befs oder Flash-Page mit key inp 
+w (write)		schreibe bef-> Flash mit key inp
 bef kann auch über Serial eingelesen werden, das ist aber blocking bis CR.
-e (edit)	bef <- nachfolgende Eingaben bis CR
+" 			bef <- nachfolgende Eingaben bis CR
+Einfacher Test kopiere aus Sourcecode "blabla, dann X
+
+
+
+Ablaufbefehle:
+Ein befP zeigt auf den nächsten auszuführende Befehl (ab 0) in bef
+X	(exec) 	 	führe bef ab 0 aus 
+x				lies Flash mit key inp und führe aus (gosub)
+y				lies Buchstabe[inp] und führe aus (gosub)
+q	(quit)		stop Execution (runMode 0),
+Q				stop and reset stacks, befP
+s	(single)	 	single step  (runMode 1)
+k	(kontinue)  	beende single step oder nach stop
+j  	(jump)    		springe zum #inp byte in bef
+S	(Stack)		zeige Stack
+e				refresh display
+refresh() passiert nur, wenn Programme beendet sind. Um es z.B. im single step modus zu erzwingen: e
+
+Beispiel:
+3x		;
+3ms		; lade Ablauf 3 und starte single step
+0~4,23,0U,s~c,1+~,32xu	Breakpoint nach push des aktuellen Schleifenwerts (U,s)
+
+
 
 Agenten:
-Um interessantere Effekte zu erhlten können mehrere Agenten "gleichzeitig" ablaufen.
-Parameter:
+Um interessantere Effekte zu erhalten können mehrere Agenten "gleichzeitig" ablaufen.
+Idee:
 Tick: Zählt durch 0..255
 Tack[agM]: Agent wird aufgerufen wenn t=t,
 
+Parameter:
+pars,bef,delt,agnt a
 Limits:
 Bei Aufruf wird nur der inpStack übergeben
 
 Starten:
 pars,befnum,delt,ag a       
 
-Stack nach AgStack kopieren
-
 Restart:
 erfolgt wenn Tick=Tack
 Bef laden
 AGStack-> StackStack für Agenten kopieren
 
-Jeder Task wird aus einer Flash-Page (128 bytes) ausgeführt 
 
-
-
-
-
-Ablaufbefehle:
-Ein befP zeigt auf den nächsten auszuführende Befehl (ab 0) in bef
-X	(exec)  	führe bef ab 0 aus 
-x				lies Eprom mit key inp und führe aus (gosub)
-y				lies Befehle[inp] und führe aus (gosub)
-q	(quit)		stop Execution (runMode 0),
-Q				stop and reset stacks, befP
-s	(single) 	single step  (runMode 1)
-k	(kontinue)  beende single step oder nach stop
-j  	(jump)    	springe zum #inp byte in bef
-S	(Stack)		zeige Stack
-Beispiel:
-3y		;
-3ms		; lade Ablauf 3 und starte single step
-0~4,23,0U,s~c,1+~,32xu	Breakpoint nach push des aktuellen Schleifenwerts (U,s)
 
 Calc, Memo, Parameter
 Ein inp-Stack(20) und 21 Memo-Register dienen zur Speicherung von Werten oder Übergabe von Parametern
@@ -117,7 +116,7 @@ Ein inp-Stack(20) und 21 Memo-Register dienen zur Speicherung von Werten oder Ü
 |
 &
 ~	swap inp und inpsw 
->   memo[inp] <- pop
+>	memo[inp] <- pop
 <	inp <- memo[inp]
 
 Beispiel:
@@ -145,18 +144,14 @@ Schleifen können max 6 geschachtelt sein
 
 
 Zeitsteuerung über Ticks, eingestellt sind 40ms pro Tick (tickTim) d.h. 25 Updates / sec
-Array-update nur wenn Tick
-T   setze anzahl der Warteticks aus memo[9], update ggf LEDs und disable LED update
-t	warte bis Ticks abgelaufen, dann update LEDS
-Beispiel:
-20,9>			;
-T befehle t		;
+LEDs werden refreshed
+T setze tickTim auf inp
 
 
 
 Überblick Moves:
 Von/Nach:   Array  Pix		Color   Memo	inp
-Array				 L				D
+Array			 L				D
 Pix			l				 C				RGB
 Color				 c
 Memo		d
@@ -170,6 +165,8 @@ rndMax	11	15	19
 valMin	12	16	20
 valMax	13	17	21
 
+
+"Schreiben" einzelne Buchstaben sind in Bef
 
 falls rndMin==rndMax 
 
@@ -201,22 +198,6 @@ Explosion
 Ring
 Random color change
 
-Speicherung vieler Strings im EEPROM ATMega 328 
-Viele Strings unterschiedlicher Länge (<100), die vom Benutzer geändert werden können. 
-
-Da sich dabei auch deren Länge ändert, zudem sollen 
-Schreibzeit ist unkritisch, Lesen sollte nicht wesentlich länger dauern. Habe zur Zeit folgenden Ansatz:
-gespeichert jeweils key und offset zum Nächsten als Byte. Key FF ist reserviert für Ende , FE für Unbenutzt
-Beispiel für key 3
- 0  1 2 3 4 5 6 7  8 ... 15 16 
-03 15 S t r i n g \0        FF  
-
-Initialisieren: FF nach 0;
-Schreiben von n bytes (einschl \0) mit Key k:
-Sequentiell durchgehen bis Ende oder Key gefunden.
-	Ende: schreibe key und offset (mit reserve) ,string und FF bei Nachfolger
-	Gefunden: Passt rein sonst Key auf 0xFE und anhängen
-Lesen: bei 0 beginnend suche passenden key 
-Löschen: setze zu löschenden key-Eintrag auf oxFE, kombiniere freie mit Nachbarn wenn offset <255
-Nachteil, dass häufig geänderte strings den Speicher abnutzen, nach 100000 Änderungen ist Schluss...
-0+~4,23,~Ulu
+https://www.tweaking4all.com/hardware/arduino/adruino-led-strip-effects/
+https://adrianotiger.github.io/Neopixel-Effect-Generator/
+https://www.instructables.com/id/NeoPixel-Pattern-Programmer/

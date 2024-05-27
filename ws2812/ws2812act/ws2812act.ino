@@ -1,12 +1,12 @@
 /* Sketch  to play with WS2812 LEDs
-   based on driver discussed and made by Tim in http://www.mikrocontroller.net/topic/292775
-   Commands read via serial, from and to Flash using optiboot.
+  based on driver discussed and made by Tim in http://www.mikrocontroller.net/topic/292775
+  Commands read via serial, from and to Flash using optiboot.
 */
 
-#define LEDNUM 80           // Number of LEDs in stripe
+#define LEDNUM 256          // Number of LEDs in stripe
 #define ws2812_port PORTB   // Data port register
-#define ws2812_pin 2        // Number of the data out pin,
-#define ws2812_out 10       // resulting Arduino num
+#define ws2812_pin 1        // Number of the data out pin there ,
+#define ws2812_out 9       // resulting Arduino num
 #include "optiboot.h"
 // allocate flash to write to, must be initialized, one more than used as 0 for EOS
 #define NUMBER_OF_PAGES 50
@@ -112,7 +112,7 @@ void errF(const __FlashStringHelper *ifsh, int n) {
 }
 
 bool readPage(byte page) {
-  page -= 39; // page is translated -39 so eg 40 reads 1
+  page -= pgmbefM; // page is translated -39 so eg 40 reads 1
   msgF(F("readPage"), page);
   if (page <= NUMBER_OF_PAGES) {
     optiboot_readPage(flashSpace, chunk.ramBuffer, page);
@@ -124,7 +124,7 @@ bool readPage(byte page) {
 }
 
 void writePage(byte page) {
-  page -= 39;
+  page -= pgmbefM;
   msgF(F("writePage"), page);
   if (page <= NUMBER_OF_PAGES) {
     optiboot_writePage(flashSpace, chunk.ramBuffer, page);
@@ -141,6 +141,19 @@ void dark() {
 }
 
 int arrPos( byte p) {
+  //translate logical to phys position
+  int sp = p % 16;
+  switch (sp) {
+    case 8: p = p + 7; break;
+    case 9: p = p + 5; break;
+    case 10: p = p + 3; break;
+    case 11: p = p + 1; break;
+    case 12: p = p - 1; break;
+    case 13: p = p - 3; break;
+    case 14: p = p - 5; break;
+    case 15: p = p - 7; break;
+  }
+  p = 255 - p;
   int a = p * 3;
   if (a >= ARRAYLEN) {
     errF(F("arrpos Range"), p);
@@ -276,8 +289,8 @@ void info() {
   showBef();
 }
 
-void seriBef() {
-  // blocking read Bef
+byte seriBef() {
+  // blocking read Bef, returns 0 if terminated by CR, 1 by "
   byte i;
   char b;
   Serial.print("Bef :");
@@ -288,12 +301,18 @@ void seriBef() {
     Serial.print(b);
     if (b == 13) {
       chunk.bef[i] = 0;
-      return;
+      return 0;
     }
+    if (b == '"') {
+      chunk.bef[i] = 0;
+      return 1;
+    }
+
     chunk.bef[i] = b;
   } // loop
   errF (F("Seri "), i);
   chunk.bef[i] = 0;
+  return 9;
 }
 
 bool pgm2Bef(byte num) {
@@ -306,20 +325,36 @@ bool pgm2Bef(byte num) {
   return true;
 }
 
+bool char2Bef(byte num) {
+  if (num >= charbefM) {
+    errF(F("charbef "), num);
+    return false;
+  }
+  strcpy_P(chunk.bef, (char *)pgm_read_word(&(charbefehle[num])));
+  befNum = num;
+  return true;
+}
 
-void exec(byte num) {
-  // get pgm and execute
+
+void exec(byte num, byte was) {
+  // was 0 get pgm and execute, was 1 get char
   startTim = millis();
   msgF(F("Exec"), num);
   if (runMode > 0) {
     push();           // store  current
   }
-  if (num >= pgmbefM) {
-    if (!readPage(num)) {
-      return;         // err already thrown
+  if (was == 0) {
+    if (num >= pgmbefM) {
+      if (!readPage(num)) {
+        return;         // err already thrown
+      }
+    } else {
+      if (!pgm2Bef(num)) {
+        return;         // err already thrown
+      }
     }
   } else {
-    if (!pgm2Bef(num)) {
+    if (!char2Bef(num)) {
       return;         // err already thrown
     }
   }
@@ -613,8 +648,11 @@ char doCmd(char tmp) {
       inp2Memo();
       break;
     case '"':   // to bef
-      seriBef();
-      showBef();
+      if (seriBef() == 0) {
+        showBef();
+      } else {
+        los();
+      }
       break;
     case '~':   //
       zwi = inp;
@@ -654,6 +692,11 @@ char doCmd(char tmp) {
     case 'd':   //
       doFuncs();
       break;
+    case 'e':   //
+      upd = true;
+      refresh();
+      break;
+
     case 'f':   // fill
       fillArr();
       break;
@@ -784,13 +827,18 @@ char doCmd(char tmp) {
     case 'W':   //
       break;
     case 'x':  // gosub
-      exec(inp);
+      exec(inp, 0);
       break;
     case 'X':  // exec Bef
       los();
       break;
     case 'y':  //
-      errF(F("No y please!"), 0);
+      zwi = inp;
+      inp =  inpPop() ; //called sp, ny
+      exec(zwi, 1);
+      break;
+    case 'Y':  //
+      char2Bef(inp);
       break;
     case 'z':  //
       dark();
@@ -883,7 +931,7 @@ void loop() {
           msgF(F("Agent activate"), i);
           agTack[i] += agDelt[i];
           agCop2inp(agc);
-          exec(agBefNum[agc]);
+          exec(agBefNum[agc], 0);
           return;
         }
       }
