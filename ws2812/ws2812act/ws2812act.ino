@@ -16,22 +16,20 @@ byte   ledArray[ARRAYLEN + 3]; // Buffer GRB plus one pixel
 
 const byte rc5Pin = 2;        // TSOP purple
 byte   pix[3];                // current pixel
-byte   apix[3];               // analog pixel
-byte   ptmp[3];               // temp for shifts
+byte   apix[3];               // analog pixel value (tbd)
 const byte colorM = 10;       // colors conf
 byte color[colorM * 3];
 bool debug;                   // true if
-uint8_t   runMode;            // 0 not run, 1 single step, 2 ss after exe, 3 run
+byte  runMode;                // 0 not run, 1 single step, 2 ss after exe, 3 run
 bool   upd;                   // true refresh disp
 int    inp;                   // numeric input
 int    inpsw;                 // swap-register
 bool inpAkt = false;          // true if last input was a number
-const byte inpSM = 10;        // Stack for inps conf
+const byte inpSM = 7;        // Stack for inps conf
 int inpStck[inpSM];           //
 byte  inpSP = 0;              //
 byte verb = 2;                // verbose 0 garnix 1 (.*) 2 debug 3 alles
 bool echo = true ;            // echo back chars received
-byte led = 0;                 // last used LED
 unsigned long currTim;        // Time
 unsigned long prevTim = 0;    //
 unsigned long tickTim = 20;   // in ms
@@ -43,8 +41,16 @@ typedef union {
 } chunk_t ;
 chunk_t chunk;
 
-int befP;                // next to execute
-byte befNum;            // current bef: 0..39 and 40 ..
+int befP;               // next to execute
+byte befNum;           // current bef: 0..39 and 40 ..
+byte butt;             // Buttons on PortC
+byte buttold = 63;
+byte buttcnt = 0;
+// event-que
+const byte evqM = 5;
+byte evq[evqM];
+byte evqIn = 0;
+byte evqOut = 0;
 
 // agent-Specifics
 byte tick;
@@ -58,12 +64,12 @@ byte agBefNum[agM];      // which bef to start
 byte agInpSp[agM];
 int agInpStck[agM][inpSM];
 
-const byte stackM = 5;        // Stack depth for prog exec
-byte stackP;              // points to next free
-int stackBefP[stackM];        // saved befP
-byte stackBefNum[stackM];      // saved befNum
-const byte memoM = 22;        // Memory 9.. special usage
-int memo[memoM];              //
+const byte stackM = 5;      // Stack depth for prog exec
+byte stackP;                // points to next free
+int stackBefP[stackM];      // saved befP
+byte stackBefNum[stackM];   // saved befNum
+const byte memoM = 22;      // Memory 9.. special usage
+int memo[memoM];            //
 
 const byte loopM = 4;         // max loop level
 byte loopLev;
@@ -71,6 +77,7 @@ int loopCurr[loopM];
 int loopInc[loopM];
 int loopEnd[loopM];
 byte loopBefP[loopM];
+#define TETRIS
 
 #include "myBefs.h"
 #include "rc5_tim2.h"
@@ -110,6 +117,32 @@ void errF(const __FlashStringHelper *ifsh, int n) {
   prnt(p);
   Serial.println(n);
 }
+
+byte evqPut(byte was) {
+  msgF(F("evqPut"), was);
+  evq[evqIn] = was;
+  evqIn++;
+  if (evqIn >= evqM) evqIn = 0;
+  if (evqIn == evqOut) {
+    errF(F("evq Overflow"), evqIn);
+    return 1;
+  }
+  return 0;
+}
+byte evqGet() {
+  byte tmp;
+  if (evqIn == evqOut) {
+    return 0;
+  }
+  tmp = evq[evqOut];
+  evqOut++;
+  if (evqOut >= evqM) evqOut = 0;
+  return tmp;
+}
+
+#ifdef TETRIS
+#include "tetris.h"
+#endif
 
 bool readPage(byte page) {
   page -= pgmbefM; // page is translated -39 so eg 40 reads 1
@@ -153,7 +186,7 @@ int arrPos( byte p) {
     case 14: p = p - 5; break;
     case 15: p = p - 7; break;
   }
-  p = 255 - p;
+  //p = 255 - p; upside down
   int a = p * 3;
   if (a >= ARRAYLEN) {
     errF(F("arrpos Range"), p);
@@ -188,7 +221,7 @@ void pix2color(int a) {
   color[a + 2] = pix[2];
 }
 
-void color2pix(int a) {
+void color2pix(byte a) {
   // array led a to  pix
   if (a >= colorM) {
     errF(F("color2pix Range"), a);
@@ -200,49 +233,14 @@ void color2pix(int a) {
   pix[2] = color[a + 2];
 }
 
-void arr2tmp(byte p) {
-  // array led a to  tmp
-  int a = arrPos(p);
-  ptmp[0] = ledArray[a];
-  ptmp[1] = ledArray[a + 1];
-  ptmp[2] = ledArray[a + 2];
-}
-
-void tmp2arr(byte p) {
-  int a = arrPos(p);
-  ledArray[a] = ptmp[0];
-  ledArray[a + 1] = ptmp[1];
-  ledArray[a + 2] = ptmp[2];
-  upd = true;
-}
-
-void arr2memo(byte p) {
-  // uses ptmp!
-  arr2tmp(p);
-  memo[0] = ptmp[0];
-  memo[1] = ptmp[1];
-  memo[2] = ptmp[2];
-  memo[3] = p;
-}
-
-void memo2arr() {
-  // uses ptmp!
-  ptmp[0] = memo[0];
-  ptmp[1] = memo[1];
-  ptmp[2] = memo[2];
-  tmp2arr(memo[3]);
-}
-
-
 void randvalCol(byte col) {
   int ran, rano;
-  char str[50];
   if (col > 2) {
     errF(F("randval"), col);
     return;
   }
-  byte brmi = 10 + col * 4;
-  byte brma = brmi + 1;
+  byte brmi = 10 + col * 4; // memo locations per color
+  byte brma = brmi + 1; //max
   byte bvmi = brmi + 2;
   byte bvma = brmi + 3;
   rano = random(memo[brmi], memo[brma]);
@@ -250,10 +248,6 @@ void randvalCol(byte col) {
   if (ran < memo[bvmi]) ran = memo[bvmi];
   if (ran > memo[bvma]) ran = memo[bvma];
   pix[col] = ran;
-  if (verb > 1) {
-    sprintf(str, "col %1u %4d %4d %4d %4d %4d -> %3u", col, memo[brmi], memo[brma], memo[bvmi], memo[bvma], rano, pix[col]);
-    Serial.println(str);
-  }
 }
 
 void fillArr() {
@@ -284,7 +278,7 @@ void showBef() {
 
 void info() {
   char str[100];
-  sprintf(str, "RM %1u befN%4d befP %2d Stp %2u LL %2u Inp %5d Led %2u pix R%3u G%3u B%3u ", runMode, befNum, befP, stackP, loopLev, inp, led, pix[1], pix[0], pix[2]);
+  sprintf(str, "RM %1u befN%4d befP %2d Stp %2u LL %2u Inp %5d pix R%3u G%3u B%3u ", runMode, befNum, befP, stackP, loopLev, inp, pix[1], pix[0], pix[2]);
   Serial.print(str);
   showBef();
 }
@@ -293,7 +287,7 @@ byte seriBef() {
   // blocking read Bef, returns 0 if terminated by CR, 1 by "
   byte i;
   char b;
-  Serial.print("Bef :");
+  Serial.print(F("Bef :"));
   for (i = 0; i < 50; i++) {
     while (Serial.available() == 0) {
     }
@@ -317,7 +311,7 @@ byte seriBef() {
 
 bool pgm2Bef(byte num) {
   if (num >= pgmbefM) {
-    errF(F("pgmbef "), num);
+    errF(F("pgm2Bef "), num);
     return false;
   }
   strcpy_P(chunk.bef, (char *)pgm_read_word(&(pgmbefehle[num])));
@@ -331,29 +325,32 @@ bool char2Bef(byte num) {
     return false;
   }
   strcpy_P(chunk.bef, (char *)pgm_read_word(&(charbefehle[num])));
-  befNum = num;
+  befNum = num + 200; //we can not call others from chars
   return true;
 }
 
 
 void exec(byte num, byte was) {
   // was 0 get pgm and execute, was 1 get char
-  startTim = millis();
-  msgF(F("Exec"), num);
+  startTim = micros();
   if (runMode > 0) {
-    push();           // store  current
+    prgPush();           // store  current
   }
+
   if (was == 0) {
+    msgF(F("ExeFl"), num);
     if (num >= pgmbefM) {
       if (!readPage(num)) {
         return;         // err already thrown
       }
+      befNum = num;
     } else {
       if (!pgm2Bef(num)) {
         return;         // err already thrown
       }
     }
   } else {
+    msgF(F("ExeChar"), num);
     if (!char2Bef(num)) {
       return;         // err already thrown
     }
@@ -361,7 +358,6 @@ void exec(byte num, byte was) {
   if (runMode == 0) {
     befP = 0;
     runMode = 3;
-
   } else {
     befP = -1;
   }
@@ -383,19 +379,24 @@ void los() {
 }
 
 void showStack() {
-  char str[100];
-  Serial.println(" Progstack:");
+  char str[50];
+  char dd[4];
+  const static char dj[] PROGMEM = "-> ";
+  const static char dn[] PROGMEM = "   ";
+  Serial.println(F(" Progstack:"));
   for (int i = 0; i < stackM; i++) {
     if (i == stackP) {
-      Serial.println("^^^^");
+      strcpy_P(dd, dj );
+    } else {
+      strcpy_P(dd, dn );
     }
-    sprintf(str, "%2u N %4d P %2u", i, stackBefNum[i], stackBefP[i]);
+    sprintf(str, "%s %2u N %4d P %2u", dd, i, stackBefNum[i], stackBefP[i]);
     Serial.println(str);
   }
 }
 
-void push() {
-  msgF(F("prgPush"), stackP);
+void prgPush() {
+  msgF(F("prgPush"), befNum);
   if (stackP >= stackM) {
     errF(F("Stack Overflow"), stackP);
   } else {
@@ -406,28 +407,31 @@ void push() {
 }
 
 void pop() {
-  msgF(F("prgPop"), stackP);
   if (stackP > 0) {
     stackP--;
     befP = stackBefP[stackP] + 1;
-    if (stackBefNum[stackP] < pgmbefM) {
-      pgm2Bef(stackBefNum[stackP]);
+    befNum = stackBefNum[stackP] ;
+    if (befNum >= pgmbefM) {
+      readPage(befNum);
     } else {
-      readPage(stackBefNum[stackP]);
+      pgm2Bef(befNum);
     }
   } else {
     errF(F("prg stack Underflow"), 0);
   }
 }
 
-void inpPush() {
-  msgF(F("inpPush"), inp);
+void wasPush(int was) {
+  msgF(F("wasPush"), inp);
   if (inpSP >= inpSM) {
     errF(F("inp Overflow"), inpSP);
   } else {
-    inpStck[inpSP] = inp; // is inc'd on pop
+    inpStck[inpSP] = was; // is inc'd on pop
     inpSP++;
   }
+}
+void inpPush() {
+  wasPush(inp);
 }
 
 int inpPop() {
@@ -464,18 +468,24 @@ void memo2Inp() {
 }
 
 void showInp() {
-  char str[100];
-  Serial.print(" inp=");
+  char str[50];
+  char dd[4];
+  const static char dj[] PROGMEM = "-> ";
+  const static char dn[] PROGMEM = "   ";
+  Serial.print(F(" inp="));
   Serial.println(inp);
-  for (byte i = 0; i < inpSM; i++) {
+  for (int i = 0; i < inpSM; i++) {
     if (i == inpSP) {
-      Serial.println("^^^^");
+      strcpy_P(dd, dj );
+    } else {
+      strcpy_P(dd, dn );
     }
+    Serial.print(dd);
     sprintf(str, "%2u %6d", i, inpStck[i]);
     Serial.println(str);
   }
-  return;
-  Serial.println("Memo:");
+  //return;
+  Serial.println(F("Memo:"));
   for (byte i = 0; i < memoM; i++) {
     if (memo[i] != 0) {
       sprintf(str, "%2u  %5d ", i, memo[i]);
@@ -485,8 +495,8 @@ void showInp() {
 }
 
 void showLoop() {
-  char str[100];
-  Serial.print("Loops: ");
+  char str[60];
+  Serial.print(F("Loops: "));
   Serial.println(loopLev);
   for (int i = 1; i < loopM; i++) {
     sprintf(str, "%2u Cur %4d Inc %4d End  %4d  Bef %3u", i, loopCurr[i],  loopInc[i],  loopEnd[i], loopBefP[i]);
@@ -550,8 +560,8 @@ void agCop2inp(byte ag) {
 }
 
 void agShow(byte ag) {
-  char str[40];
-  sprintf(str, " %1u %3d %1d %4d %4d ", ag, agBefNum[ag], agActive[ag], agTack[ag], agDelt[ag]);
+  char str[50];
+  sprintf(str, "%2u %3d %1d %4d %4d", ag, agBefNum[ag], agActive[ag], agTack[ag], agDelt[ag]);
   Serial.println(str);
 }
 
@@ -606,7 +616,7 @@ void refresh() {
 #include "myFuncs.h"
 
 
-char doCmd(char tmp) {
+char doCmd(unsigned char tmp) {
   bool weg = false;
   int zwi;
   byte zwib;
@@ -637,6 +647,10 @@ char doCmd(char tmp) {
   }
   switch (tmp) {
     case '?':   //
+      showInp();
+      showLoop();
+      break;
+    case 223:   //ß 223 ä 228 ö 246 ü 252)
       showInp();
       //showLoop();
       //showPis();
@@ -690,13 +704,11 @@ char doCmd(char tmp) {
     case 'D':   //
       break;
     case 'd':   //
-      doFuncs();
+      doFuncs(inp);
       break;
     case 'e':   //
-      upd = true;
-      refresh();
+      evqPut(inp);
       break;
-
     case 'f':   // fill
       fillArr();
       break;
@@ -708,15 +720,16 @@ char doCmd(char tmp) {
     case 'G':   //
       inp = pix[0];
       break;
-    case 'h':   // halt
+    case 'h':   //
+      buttold = PINC;
+      Serial.print(buttold);
       break;
     case 'i':  //
       agShowAll();
-
       break;
     case 'I':  // reset
       break;
-    case 'j':   //
+    case 'j':   // jump
       befP = inp;
       if (runMode > 0) { //already running
         befP--; // as inced below
@@ -732,17 +745,16 @@ char doCmd(char tmp) {
     case 'K':   //
       break;
     case 'l':   //
-      led = inp;
-      pix2arr(led);
+      pix2arr(inp);
       break;
     case 'L':   //
       arr2pix(inp);
       break;
     case 'm':   //
-      if (inp < pgmbefM) {
-        pgm2Bef(inp);
-      } else {
+      if (inp >= pgmbefM) {
         readPage(inp);
+      } else {
+        pgm2Bef(inp);
       }
       showBef();
       break;
@@ -755,7 +767,8 @@ char doCmd(char tmp) {
       agentsOn = !agentsOn;
       if (agentsOn)  Serial.println(F("Agents On")); else Serial.println(F("Agents Off"));
       break;
-    case 'p':  // pause
+    case 'p':  // pix
+      randvalCol(inp);
       break;
     case 'q':  // quit
       runMode = 0;
@@ -829,12 +842,15 @@ char doCmd(char tmp) {
     case 'x':  // gosub
       exec(inp, 0);
       break;
+    case 228:  // ä same again
+      exec(befNum, 0);
+      break;
     case 'X':  // exec Bef
       los();
       break;
     case 'y':  //
       zwi = inp;
-      inp =  inpPop() ; //called sp, ny
+      if (inpSP > 0) inp =  inpPop() ; //only if something pushed???->Verwirrung gross
       exec(zwi, 1);
       break;
     case 'Y':  //
@@ -862,6 +878,13 @@ void setup() {
   Serial.begin(38400);
   Serial.println(ich);
   pinMode(ws2812_out, OUTPUT);
+  pinMode(rc5Pin , INPUT_PULLUP);
+  pinMode(A0, INPUT_PULLUP); // PortC 0
+  pinMode(A1, INPUT_PULLUP); // PortC
+  pinMode(A2, INPUT_PULLUP); // PortC
+  pinMode(A3, INPUT_PULLUP); // PortC
+  pinMode(A4, INPUT_PULLUP); // PortC 4 (SDA)
+  pinMode(A5, INPUT_PULLUP); // PortC 5 (SCL)
   RC5_init();
   debug = false;
   runMode = 0;
@@ -871,11 +894,9 @@ void setup() {
   ledArray[2] = 0;
 }
 
-void doRun() {
-
-}
 void loop() {
   char c;
+
 
   if (Serial.available() > 0) {
     c = Serial.read();
@@ -890,22 +911,22 @@ void loop() {
 
   if (runMode > 0) { //executing
     c = chunk.bef[befP];
-    if (runMode != 2) { //single step
+    if (runMode != 2) { //not single step
       if (c == 0) {
-        msgF(F("bef done "), befP);
+        msgF(F("bef done "), befNum);
         inpAkt = false ; // just in case...
         if (stackP > 0) {
           pop();
         } else { //end of execution
           runMode = 0;
-          if (agc < agM) { // have to save stack
+          if (agc < agM) { // have to save agents stack
             agCop2ag(agc);
             agc = agM;
           }
           refresh();  //last upd should be included in time
           if (verb > 0) {
-            startTim = millis() - startTim;
-            Serial.print (F("  Fini ms="));
+            startTim = micros() - startTim;
+            Serial.print (F("  Fini us="));
             Serial.println (startTim);
           }
         }
@@ -920,7 +941,12 @@ void loop() {
       }
     } // runM
     return;
-  } // exec
+  } // runM >0
+
+  // process event
+  if (evqIn != evqOut) {
+    doFuncs(evqGet());
+  }
 
   // check for agent
   if (agentsOn) {
@@ -940,8 +966,26 @@ void loop() {
 
   currTim = millis();
   if (currTim - prevTim >= tickTim) {
+    if (verb > 1) Serial.print('.');
+
     prevTim = currTim;
     if (agentsOn) tick++;
+
+    butt = PINC & 0x3F; //A0 to A5
+    if (butt != buttold) {
+      buttold = butt;
+      buttcnt = 0;
+      evqPut(butt);
+    } else {  //repeat?
+      if (butt != 63) {
+        buttcnt++;
+        if (buttcnt >= 40) {
+          buttcnt = 0;
+          evqPut(butt);
+        }
+      }
+    }
+
     refresh();
   }
 }

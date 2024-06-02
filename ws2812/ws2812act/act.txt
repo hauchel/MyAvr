@@ -1,11 +1,6 @@
-
-Ziel LED-Effekte auf 256 LEDs mit ATMega 328
+Progrämmsche für Effekte auf 256 LEDs mit ATMega 328
 zur Ablaufgestaltung  Terminal erforderlich
 zur Ausführung reicht RC5 Fernbedienung 
-
-Cheatsheet:
-assign: par,bef,dlt,ag a
-to memo: val,mem >
 
 Ablauf: rudimentärer Code zu Ablaufsteuerung
 Stark gewöhnungsbedürftig da reverse Notation, d.h erst Parameter dann Befehl.
@@ -20,15 +15,15 @@ BS				inp <- inp/10
 Das gilt solange bis andere Zeichen eingegeben werden. 
 Space			dient als optischer Trenner, beendet Ziffernmodus sonst nix.
 Beispiel:
-98				; inp ist 98
+98			; inp ist 98
 98 2			; inp ist 2
-7#				; inp ist 8
+7#			; inp ist 8
 
 Nummerierung der Leds
 gespeichert werden 256*3 GRBs so wie sie rausgeschoben werden.
-Dummerweise ist 0..7 15..8, d.h. arrpos() rechnet entsprechend um
-Pixel:
-pix				enhält RGB-Werte (0 bis 255), quasi Stiftfarbe 
+Dummerweise ist Reihenfolge 0..7 15..8, d.h. arrpos() rechnet um 0 ist links unten
+
+pix enhält RGB-Werte (0 bis 255), quasi Stiftfarbe 
 r g b 			setzt diese Werte auf inp
 R G B				setzt inp auf r oder g  oder b von pix
 l	(LED) 		überträgt pix -> LED[inp] 
@@ -37,8 +32,8 @@ f	(fill) 		füllt alle LEDs mit pix
 z	(zero) 		füllt alle LEDs mit 0/0/0
 Beachte, dass inp zwischen Befehlen erhalten bleibt, erst wenn wieder Ziffer oder # wird es geändert.
 Beispiel:
-z10r0gb4l#l##l			; Löscht alle LEDs, 4,5,7 auf wenig rot
-255rgbf			; Fernlicht / Test Spannungsversorgung
+z10r0gb4l#l##l		Löscht alle LEDs, 4,5,7 auf wenig rot
+255rgbf			Fernlicht / Test Spannungsversorgung
 
 10 verschiedene RGB Werte können im color-Array[0..9] abgelegt werden
 c 				pix <- color(inp)
@@ -55,20 +50,20 @@ CR				zeige wichtigste Infos:  ... Inp     7 Led   7 pix R 10 G  0 B 26  ...
 
 Ein Ablauf ist eine Folge von Befehlen in dem Null-terminated String bef[] max len 127.
 Diese werden im Flash oder im Arduino Sourcecode (befehle[]) gespeichert.
-Technisch sind 0..39 (pgmbefM=40) fest programmiert myBefs.h, 40.. in Flash 40-> Page 1. Jeder befehl wird in SPM_PAGESIZE = 128 byte abgelegt
+Technisch sind 0..39 (pgmbefM=40) fest programmiert in myBefs.h, 40.. in Flash 40-> Page 1. Jeder Befehl wird in SPM_PAGESIZE = 128 byte abgelegt und ist weg wenn neu geflasht wird.
 m (memory) 		bef <- Befs oder Flash-Page mit key inp 
-w (write)		schreibe bef-> Flash mit key inp
+w (write)		schreibe bef-> Flash mit key inp (nur für 40+)
 bef kann auch über Serial eingelesen werden, das ist aber blocking bis CR.
 " 			bef <- nachfolgende Eingaben bis CR
-Einfacher Test kopiere aus Sourcecode "blabla, dann X
-
+ein zweites " während der Eingabe führt den eingegbenen text sofort aus, d.h. einfacher Test kopiere aus Sourcecode "blabla"
 
 
 Ablaufbefehle:
-Ein befP zeigt auf den nächsten auszuführende Befehl (ab 0) in bef
+befN enthält die nummer des aktuellen Programms 0..39, 40..
+befP zeigt auf den nächsten auszuführende Befehl (ab 0) in bef
 X	(exec) 	 	führe bef ab 0 aus 
 x				lies Flash mit key inp und führe aus (gosub)
-y				lies Buchstabe[inp] und führe aus (gosub)
+y				lies z. B. Buchstabe[inp] von charbefehle[charbefM], pop (die Position) und (gosub)
 q	(quit)		stop Execution (runMode 0),
 Q				stop and reset stacks, befP
 s	(single)	 	single step  (runMode 1)
@@ -77,12 +72,12 @@ j  	(jump)    		springe zum #inp byte in bef
 S	(Stack)		zeige Stack
 e				refresh display
 refresh() passiert nur, wenn Programme beendet sind. Um es z.B. im single step modus zu erzwingen: e
+aus charbef y dürfen keine Unterprogramme mit x oder y aufgerufen werden, da return-Adresse  nicht gemerkt wird. Es dürfen nur Aufrufe aus Programmen erfolgen, die im Flash stehen. 
 
 Beispiel:
 3x		;
 3ms		; lade Ablauf 3 und starte single step
 0~4,23,0U,s~c,1+~,32xu	Breakpoint nach push des aktuellen Schleifenwerts (U,s)
-
 
 
 Agenten:
@@ -167,6 +162,7 @@ valMax	13	17	21
 
 
 "Schreiben" einzelne Buchstaben sind in Bef
+
 
 falls rndMin==rndMax 
 

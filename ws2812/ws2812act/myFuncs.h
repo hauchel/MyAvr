@@ -1,6 +1,6 @@
+#ifndef TETRIS
 //calling: inp contains function requested, stack params
-void doFuncs() {
-  int was = inp;
+void doFuncs(byte was) {
   inp = inpPop();
   switch (was) {
     case 1:   // inp to cycle # leds up
@@ -15,22 +15,24 @@ void doFuncs() {
         inp = LEDNUM - 1;
       }
       break;
-  case 3:   // inp to cycle # leds right
+    case 3:   // inp to cycle # leds right
       inp -= 1;
       if (inp < 0) {
         inp = LEDNUM - 1;
       }
       break;
-      case 4:   // inp to cycle # leds left
+    case 4:   // inp to cycle # leds left
       inp -= 1;
       if (inp < 0) {
         inp = LEDNUM - 1;
       }
-      break;      
+      break;
     default:
       errF(F("doFuncs"), inp);
   } //switch
 }
+#endif
+
 void doRC5() {
   msgF(F("RC5 "), rc5_command);
   if (rc5_command <= 9) {
