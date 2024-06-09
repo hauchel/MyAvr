@@ -1,6 +1,7 @@
 Progrämmsche für Effekte auf 256 LEDs mit ATMega 328
 zur Ablaufgestaltung  Terminal erforderlich
-zur Ausführung reicht RC5 Fernbedienung 
+zur Ausführung reicht RC5 Fernbedienung
+auch als slave Controller einsetzbar, jeweils einer zuständig für 256 LEDs, eine Zentraleinheit steuert bis zu 128 Slaves
 
 Ablauf: rudimentärer Code zu Ablaufsteuerung
 Stark gewöhnungsbedürftig da reverse Notation, d.h erst Parameter dann Befehl.
@@ -10,8 +11,8 @@ Jeder Befehl ist nur ein Zeichen, das reduziert den Schreib/Speicheraufwand und 
 Register inp:
 Das Register inp enthält int, gesetzt durch Ziffer,#,BS
 0..9			inp <- inp*10 + Ziffer
-#				inp <- inp+1
-BS				inp <- inp/10
+#			inp <- inp+1
+BS			inp <- inp/10
 Das gilt solange bis andere Zeichen eingegeben werden. 
 Space			dient als optischer Trenner, beendet Ziffernmodus sonst nix.
 Beispiel:
@@ -20,40 +21,49 @@ Beispiel:
 7#			; inp ist 8
 
 Nummerierung der Leds
-gespeichert werden 256*3 GRBs so wie sie rausgeschoben werden.
-Dummerweise ist Reihenfolge 0..7 15..8, d.h. arrpos() rechnet um 0 ist links unten
+Gespeichert werden 256*3 GRBs so wie sie rausgeschoben werden.
+Dummerweise ist Reihenfolge 0..7 15..8 16.., aber arrpos() rechnet um, 0 ist links unten, +1 nach oben, +8 nach rechts 
 
 pix enhält RGB-Werte (0 bis 255), quasi Stiftfarbe 
-r g b 			setzt diese Werte auf inp
-R G B				setzt inp auf r oder g  oder b von pix
-l	(LED) 		überträgt pix -> LED[inp] 
-L				überträgt LED[inp] nach pix
-f	(fill) 		füllt alle LEDs mit pix
-z	(zero) 		füllt alle LEDs mit 0/0/0
+r g b 		setzt diese Werte auf inp
+R G B			setzt inp auf r oder g  oder b von pix
+l	(LED) 	überträgt pix -> LED[inp] 
+L			überträgt LED[inp] nach pix
+f	(fill) 	füllt alle LEDs mit pix
+z	(zero) 	füllt alle LEDs mit 0/0/0
 Beachte, dass inp zwischen Befehlen erhalten bleibt, erst wenn wieder Ziffer oder # wird es geändert.
 Beispiel:
-z10r0gb4l#l##l		Löscht alle LEDs, 4,5,7 auf wenig rot
-255rgbf			Fernlicht / Test Spannungsversorgung
+z10r0gb4l#l##l	Löscht alle LEDs, 4,5,7 auf wenig rot
+255rgbf		Fernlicht / Test Spannungsversorgung
 
 10 verschiedene RGB Werte können im color-Array[0..9] abgelegt werden
-c 				pix <- color(inp)
-C				color(inp) <- pix
+c 			pix <- color(inp)
+C			color(inp) <- pix
+p			pix auf zufällige Farben, dazu später mehr (Memo)
+
 Beispiel:
 30r0gb1C		; color 1 ist dunkles rot
 1c8l			; LED 8 auf color 1
 
+
 Nebenbei:
 v (verbose)		toggelt 0 nix, 1 wait und update , 2 Trace
-V    			toggle echo von erhaltenen Zeichen
-CR				zeige wichtigste Infos:  ... Inp     7 Led   7 pix R 10 G  0 B 26  ...
-?				(siehe unten) zeige alle stacks und den loop-Status, memo nur wenn != 0
+V    			toggle echo von erhaltenen Zeichen (falls slave)
+CR			zeige wichtigste Infos:  ... Inp     7 Led   7 pix R 10 G  0 B 26  ...
+?			(siehe unten) zeige alle stacks und den loop-Status, memo nur wenn != 0
+ß			
 
-Ein Ablauf ist eine Folge von Befehlen in dem Null-terminated String bef[] max len 127.
-Diese werden im Flash oder im Arduino Sourcecode (befehle[]) gespeichert.
-Technisch sind 0..39 (pgmbefM=40) fest programmiert in myBefs.h, 40.. in Flash 40-> Page 1. Jeder Befehl wird in SPM_PAGESIZE = 128 byte abgelegt und ist weg wenn neu geflasht wird.
+Ein Ablauf (Programm) ist eine Folge von Befehlen in dem Null-terminated String bef[] max len 127.
+Diese werden an drei Stellen gespeichert:
+im Arduino Sourcecode (pgmbefehle[]) pgmbefM=40 (können auch gerne mehr sein)
+im Arduino Sourcecode (charbefehle[]) charbefM=40 (können auch gerne mehr sein)
+im Flash, dies kann dank optiboot zur Laufzeit geschrieben werden.
+Technisch sind 0..39 (pgmbefM=40, fest programmiert in myBefs.h. 
+40..40+NUMBER_OF_PAGES (50) in Flash, 40-> Page 1. Jeder dieser Befehl wird mit SPM_PAGESIZE = 128 byte abgelegt und ist weg wenn neu geflasht wird. Dieser Bereich kann zum Probieren aber auch zum Download vom Master genutzt werden.
+Nach Reset wird Programm 0 ausgeführt.
 m (memory) 		bef <- Befs oder Flash-Page mit key inp 
 w (write)		schreibe bef-> Flash mit key inp (nur für 40+)
-bef kann auch über Serial eingelesen werden, das ist aber blocking bis CR.
+bef kann auch über Serial eingelesen werden, das ist blocking bis CR oder ".
 " 			bef <- nachfolgende Eingaben bis CR
 ein zweites " während der Eingabe führt den eingegbenen text sofort aus, d.h. einfacher Test kopiere aus Sourcecode "blabla"
 
@@ -61,18 +71,26 @@ ein zweites " während der Eingabe führt den eingegbenen text sofort aus, d.h. 
 Ablaufbefehle:
 befN enthält die nummer des aktuellen Programms 0..39, 40..
 befP zeigt auf den nächsten auszuführende Befehl (ab 0) in bef
-X	(exec) 	 	führe bef ab 0 aus 
+X	(exec) 	 	führe aktuellen bef ab 0 aus
 x				lies Flash mit key inp und führe aus (gosub)
-y				lies z. B. Buchstabe[inp] von charbefehle[charbefM], pop (die Position) und (gosub)
+ä	(ägain)		aktuelle befnum nochmal
+y				lies z. B. Buchstabe[inp] von charbefehle[], pop (die Position,aber nur wenn was auf dem stack ist(!)) und (gosub)
 q	(quit)		stop Execution (runMode 0),
 Q				stop and reset stacks, befP
 s	(single)	 	single step  (runMode 1)
 k	(kontinue)  	beende single step oder nach stop
-j  	(jump)    		springe zum #inp byte in bef
+j  	(jump)    		springe zum #inp byte in bef (Vorsicht, damit nicht ausserhalb von trailing 0!)
+J				return (springe zum Ende von Bef)
+[	(91)			return wenn led[inp] != pix
+]	(93)			return wenn led[inp] == pix
+{	(123)			return wenn inp == inpswap
+}	(125)			return wenn inp != inpswap
+				return if led <> pix
 S	(Stack)		zeige Stack
+
 e				refresh display
-refresh() passiert nur, wenn Programme beendet sind. Um es z.B. im single step modus zu erzwingen: e
-aus charbef y dürfen keine Unterprogramme mit x oder y aufgerufen werden, da return-Adresse  nicht gemerkt wird. Es dürfen nur Aufrufe aus Programmen erfolgen, die im Flash stehen. 
+refresh() der LEDs passiert nur, wenn Programme beendet sind. Um es z.B. im single step modus zu erzwingen: 
+aus charbef y dürfen keine Unterprogramme mit x oder y aufgerufen werden, da return-Adresse  nicht gespeichert wird.
 
 Beispiel:
 3x		;
@@ -82,27 +100,57 @@ Beispiel:
 
 Agenten:
 Um interessantere Effekte zu erhalten können mehrere Agenten "gleichzeitig" ablaufen.
-Idee:
-Tick: Zählt durch 0..255
-Tack[agM]: Agent wird aufgerufen wenn t=t,
-
-Parameter:
+Erstellen mit 
 pars,bef,delt,agnt a
+
+Tick: Zählt durch 0..255 (in 40 ms)
+Tack[agM]: Agent wird aufgerufen wenn t=t,dann um delt erhöht
+
 Limits:
-Bei Aufruf wird nur der inpStack übergeben
+"Due to memory limits" teilen sich die Agents z.B. die Pix, color table usw,
+aber jeder hat einen eigenen inpStack, dieser wird beim erstmaligen aufruf vom aktuellen kopiert:
+
+inpstack beim erstellen		Kopie
+	agnum				par3
+	delt				par2
+	befnum			par1
+	par3
+	par2
+	par1
 
 Starten:
-pars,befnum,delt,ag a       
+pars..,befnum,delt,ag a       
 
 Restart:
 erfolgt wenn Tick=Tack
+a		erstelle
+o 		toggle general enable
+i		anzeigen 
+Löschen:
+neuen mit gleicher Nummer anlegen
+
 Bef laden
 AGStack-> StackStack für Agenten kopieren
 
+Beispiel:
 
+Agent 1 führt Programm 60 aus. Buchstabe L(12) soll wandern,Position ist auf dem Stack
+a) Programm erstellen und speichern
+"1c12y,8+,
+60w
+b) Prüfen
+8,60x60x 
+c) Agent 1 anlegen (10 ist Startposition) und anzeigen
+10,60,20,1ai
+d)alle aktivieren
+o
+e) zweiten agent mit anderem Buchstaben und Farbe:
+"2c8y,8+,
+61w
+8,61,30,2ai
 
 Calc, Memo, Parameter
-Ein inp-Stack(20) und 21 Memo-Register dienen zur Speicherung von Werten oder Übergabe von Parametern
+Ein inp-Stack(20) und 21 Memo-ints dienen zur Speicherung von Werten oder Übergabe von Parametern
 ,	push inp
 +	inp <- pop + inp
 -  	inp <- pop - inp 
@@ -140,7 +188,7 @@ Schleifen können max 6 geschachtelt sein
 
 Zeitsteuerung über Ticks, eingestellt sind 40ms pro Tick (tickTim) d.h. 25 Updates / sec
 LEDs werden refreshed
-T setze tickTim auf inp
+T		 setze tickTim auf inp
 
 
 
@@ -154,12 +202,26 @@ inp					rgb				>
 Analog		 		 a
 
 
-Fading benutzt memos 10 bis 21 für Parameter für g,r,b
-rndMin  10	14	18
+Zufällige Farben werden durch Fading erzeugt, dies benutzt memos 10 bis 21 für Parameter für g,r,b
+rndMin	10	14	18
 rndMax	11	15	19
 valMin	12	16	20
 valMax	13	17	21
+rano = random(memo[brmi], memo[brma]);
+  ran =  rano + pix[col];
+  if (ran < memo[bvmi]) ran = memo[bvmi];
+  if (ran > memo[bvma]) ran = memo[bvma];
+  pix[col] = ran;
+  
+0,15-,10>15,11>0,15-,14>15,15>0,15-,18>15,19>
+0p 		Rufe für G
 
+
+Beispiel:
+ein Punkt soll wandernd die Farbe ändern, Aufruf 10,
+"0p1p2p0+l#,
+65w
+10,65x65x65x
 
 "Schreiben" einzelne Buchstaben sind in Bef
 
@@ -171,6 +233,20 @@ Beispiel:
 
 Muster einzelne pix:
 vorher setzen ticks, inp first, rgb pix
+
+Events:
+um z.B. mehrere Programme nacheinaneder auszuführen oder Tasteneingaben zu verarbeiten wird ein byte in der 
+eventque[evqM](5) gespeichert und - wenn kein Programm läuft - von doFuncs() abgearbeitet.
+d	ruft dufuncs mit inp direkt auf
+e	steckt event inp in die queue
+Buttons werden alle 40 ms gescannt und jede Änderung führt zu einem Event, nummer ist der Wert von PORTC & 0x3F. 
+Falls ein DAU viele Tasten auf einmal drückt könnten 
+Falls es Probleme mit prellen geben sollte, hm...
+63	keine Taste gedrückt alle high
+62	A0 ist low
+61	A1 ist low
+
+
 
 colors define	 	10     0 leer, 1 rot, 2 orange .. 7 weiss
 colors show      	11	
@@ -197,3 +273,22 @@ Random color change
 https://www.tweaking4all.com/hardware/arduino/adruino-led-strip-effects/
 https://adrianotiger.github.io/Neopixel-Effect-Generator/
 https://www.instructables.com/id/NeoPixel-Pattern-Programmer/
+
+
+
+Fernbedienung: TSOP an rc5Pin = 2;        // TSOP purple
+
+
+Tetris edition
+7 Blocks zu 4 positionen
+verwende 
+y[0..27]	zeichne bei inp
+y[30..57]	prüfe ob frei
+y[60..67]	starte block neu
+
+Mode abgelegt in memo[1]
+ 0 Halt	-> 1
+ 1 Generate	-> 2
+ 2 Dropping	->2,3 or 9
+ 3 Block beendet,
+ 9 Game over
