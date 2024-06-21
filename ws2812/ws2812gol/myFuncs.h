@@ -1,34 +1,73 @@
 
-//calling: inp contains function requested, stack params
-void doFuncs(byte was) {
-  inp = inpPop();
+byte basisR = 27;
+byte yR =  13;
+byte basisB = 203;
+byte yB = 15;
+
+void doFuncs(byte was) {  // called via eventque
+  msgF(F("dofuncs"), was);
   switch (was) {
-    case 1:   // inp to cycle # leds up
-      inp += 1;
-      if (inp >= LEDNUM) {
-        inp = 0;
-      }
+    case 1:   // Rot shot
+      color2pix(1);
+      inp = basisR;
+      exec(yR, 1);
       break;
-    case 2:   // inp to cycle # leds down
-      inp -= 1;
-      if (inp < 0) {
-        inp = LEDNUM - 1;
-      }
+    case 2:   // Blau shot
+      color2pix(2);
+      inp = basisB;
+      exec(yB, 1);
       break;
-    case 3:   // inp to cycle # leds right
-      inp -= 1;
-      if (inp < 0) {
-        inp = LEDNUM - 1;
-      }
+    case 3:   // free
       break;
-    case 4:   // inp to cycle # leds left
-      inp -= 1;
-      if (inp < 0) {
-        inp = LEDNUM - 1;
-      }
+    case 4:   // up
+      break;
+    case 5:   // draw
+      break;
+    case 6:   // down
+      break;
+    case 7:   // left
+      break;
+    case 8:   // right
+      break;
+    case 11:   // set led Red
+      basisR = inpPop();
+      break;
+    case 12:   // set led Blue
+      basisB = inpPop();
+      break;
+    case 13:   // set col
+      yR = inpPop();
+      break;
+    case 14:   // set col
+      yB = inpPop();
+      break;
+
+    case 31:   // key for left
+      evqPut(1);
+      break;
+    case 47:   // key for down
+      evqPut(6);
+      break;
+    case 55:   // key for right
+      evqPut(2);
+      break;
+    case 59:   // key for rotL
+      evqPut(1);
+      break;
+    case 61:   // key for rotR
+      evqPut(2);
+      break;
+    case 62:   // key for up
+      evqPut(4);
+      break;
+    case 63:   // all keys up
       break;
     default:
-      errF(F("doFuncs"), inp);
+      errF(F("doFuncs"), was);
+      Serial.print(F("Red  "));
+      prnln33(basisR, yR);
+      Serial.print(F("Blue "));
+      prnln33(basisB, yB);
   } //switch
 }
 

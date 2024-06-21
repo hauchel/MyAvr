@@ -63,8 +63,8 @@ byte evqOut = 0;
 
 byte tpr = 5;         // ticks per run set by A
 byte tic = 0;
-bool simu = false;     // set by a
-
+bool simu = false;    // set by a
+byte maxpix = 39;     // max sum of pix in birth;
 
 #include "golNab.h"
 #include "myBefs.h"
@@ -140,7 +140,7 @@ byte evqGet() {
 }
 
 bool readPage(byte page) {
-  page -= pgmbefM; // page is translated -39 so eg 40 reads 1
+  page = 1 + page - pgmbefM; // page is translated -39 so eg 40 reads 1
   msgF(F("readPage"), page);
   if (page <= NUMBER_OF_PAGES) {
     optiboot_readPage(flashSpace, chunk.ramBuffer, page);
@@ -152,7 +152,7 @@ bool readPage(byte page) {
 }
 
 void writePage(byte page) {
-  page -= pgmbefM; // page is translated -39 so eg 40 reads 1
+  page = 1 + page - pgmbefM;
   msgF(F("writePage"), page);
   if (page <= NUMBER_OF_PAGES) {
     optiboot_writePage(flashSpace, chunk.ramBuffer, page);
@@ -171,7 +171,7 @@ void dark() {
 }
 
 int arrPos( byte p) {
-  //translate logical to phys position
+  //translate logical to phys position (G in array)
   int sp = p % 16;
   switch (sp) {
     case 8:  p += 7; break;
@@ -287,7 +287,9 @@ void showInp() {
   const static char dj[] PROGMEM = "-> ";
   const static char dn[] PROGMEM = "   ";
   Serial.print(F(" inp="));
-  Serial.println(inp);
+  Serial.print(inp);
+  Serial.print(F("inpsp"));
+  Serial.println(inpSP);
   for (int i = 0; i < inpSM; i++) {
     if (i == inpSP) {
       strcpy_P(dd, dj );
@@ -477,7 +479,7 @@ uint16_t sumNab(byte p) {
     a = pgm_read_word(&nab[p][i]);
     if (a < 999) su += ledArray[a];
   }
-  if (su > 0) msgF(F("Sum Nab"), su);
+  //if (su > 0) msgF(F("Sum Nab"), su);
   return su;
 }
 
@@ -506,6 +508,13 @@ void birth(byte p) {
   }
   sumR = sumR / 3;
   sumB = sumB / 3;
+  if (sumR > sumB) {
+    if (sumR > maxpix) sumR = maxpix;
+    sumB = maxpix - sumR;
+  } else {
+    if (sumB > maxpix) sumB = maxpix;
+    sumR = maxpix - sumB;
+  }
   if (verb > 0) {
     Serial.print(F("Birth at "));
     prn3u(p);
@@ -519,19 +528,15 @@ void birth(byte p) {
 
 void execChng() {
   pix2color(9); //save
-  if (verb > 0) Serial.println(F("  Hin:"));
+  //if (verb > 0) Serial.println(F("  Hin:"));
   for (int  i = 0; i < hinP; i++) {
-    if (verb > 0) {
-      prnln33(i, chng[i]);
-    }
+    //if (verb > 0)  prnln33(i, chng[i]);
     birth(chng[i]);
   }
-  if (verb > 0) Serial.println(F("  Weg:"));
+  //if (verb > 0) Serial.println(F("  Weg:"));
   color2pix(0);
   for (int  i = chngM; i > wegP; i--) {
-    if (verb > 0) {
-      prnln33(i, chng[i]);
-    }
+    //if (verb > 0) prnln33(i, chng[i]);
     pix2arr(chng[i]);
   }
   color2pix(9);
@@ -551,6 +556,10 @@ void buildChng() {
       if (ledArray[a] == 0) {
         chng[hinP] = i;
         hinP++;
+        if (hinP == wegP) {
+          errF(F("buildChng Hin"), hinP);
+          return;
+        }
       }
     } else if (su == 2) {
 
@@ -558,6 +567,11 @@ void buildChng() {
       if (ledArray[a] != 0) {
         chng[wegP] = i;
         wegP--;
+        if (hinP == wegP) {
+          errF(F("buildChng Weg"), hinP);
+          return;
+        }
+
       }
     } // su
   } // next
@@ -593,15 +607,19 @@ char doCmd(unsigned char tmp) {
   }
 
   inpAkt = false;
-  simu = false; //any key stops
+
   switch (tmp) {
     case '?':   //
       showInp();
       break;
     case 'a':
-      simu = true;
-      msgF(F("Simu on"), tpr);
-      tic = 0;    // start immediately
+      simu = !simu;
+      if (simu) {
+        msgF(F("Simu on"), tpr);
+        tic = 0;  // start immediately
+      } else {
+        msgF(F("Simu off"), tpr);
+      }
       break;
     case 'A':
       tpr = inp;
@@ -693,6 +711,10 @@ char doCmd(unsigned char tmp) {
       buildChng();
       execChng();
       break;
+    case 'P':
+      maxpix = inp;
+      msgF(F("maxpix"), inp);
+      break;
     case 'q':  // quit
       runMode = 0;
       Serial.println(F("Stop"));
@@ -744,7 +766,11 @@ char doCmd(unsigned char tmp) {
       break;
     case 'y':  //
       zwi = inp;
-      if (inpSP > 0) inp =  inpPop() ; //only if something pushed???->Verwirrung grande
+      if (inpSP > 0) {
+        inp =  inpPop(); //if  something pushed???->Verwirrung grande
+      } else {
+        inp = inpsw;    // else take it from  swap
+      }
       exec(zwi, 1);
       break;
     case 'Y':  //
@@ -758,6 +784,7 @@ char doCmd(unsigned char tmp) {
       msgF(F(" zero "), 0);
       break;
     case ' ':
+      simu = false; //
       break;
     case 13:
       info();

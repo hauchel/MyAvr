@@ -79,13 +79,13 @@ q	(quit)		stop Execution (runMode 0),
 Q				stop and reset stacks, befP
 s	(single)	 	single step  (runMode 1)
 k	(kontinue)  	beende single step oder nach stop
-j  	(jump)    		springe zum #inp byte in bef (Vorsicht, damit nicht ausserhalb von trailing 0!)
+j  	(jump)    		springe zum #inp byte in bef (Vorsicht, dass nicht jenseits von trailing 0!)
 J				return (springe zum Ende von Bef)
-[	(91)			return wenn led[inp] != pix
-]	(93)			return wenn led[inp] == pix
+[	(91)			return wenn led[inp] == pix
+]	(93)			return wenn led[inp] != pix
 {	(123)			return wenn inp == inpswap
-}	(125)			return wenn inp != inpswap
-				return if led <> pix
+}	(125)			return wenn inp <> inpswap
+
 S	(Stack)		zeige Stack
 
 e				refresh display
@@ -237,7 +237,7 @@ vorher setzen ticks, inp first, rgb pix
 Events:
 um z.B. mehrere Programme nacheinaneder auszuführen oder Tasteneingaben zu verarbeiten wird ein byte in der 
 eventque[evqM](5) gespeichert und - wenn kein Programm läuft - von doFuncs() abgearbeitet.
-d	ruft dufuncs mit inp direkt auf
+d	ruft dofuncs mit inp direkt auf
 e	steckt event inp in die queue
 Buttons werden alle 40 ms gescannt und jede Änderung führt zu einem Event, nummer ist der Wert von PORTC & 0x3F. 
 Falls ein DAU viele Tasten auf einmal drückt könnten 
@@ -277,14 +277,30 @@ https://www.instructables.com/id/NeoPixel-Pattern-Programmer/
 
 
 Fernbedienung: TSOP an rc5Pin = 2;        // TSOP purple
-
+wird in doRC5() in char umgesetzt
 
 Tetris edition
+
 7 Blocks zu 4 positionen
-verwende 
-y[0..27]	zeichne bei inp
+verwende generiertes  (tetris.h)
+y[0..27]	zeichne bei inp 
 y[30..57]	prüfe ob frei
 y[60..67]	starte block neu
+	case 11:     tetled = inpPop();
+	case 12:     tetobj = inpPop();
+	case 13:     tetcol = inpPop();
+	case 1:   // Rot left
+	case 2:   // Rot right
+	case 3:   // free
+	case 4:   // up
+	case 5:   // draw
+	case 6:   // down
+	case 7:   // left
+	case 8:   // right	
+
+
+memo[1] mode
+memo[1] mode
 
 Mode abgelegt in memo[1]
  0 Halt	-> 1

@@ -34,7 +34,7 @@ const char s_30[] PROGMEM = "0+TU,L0i0+lut";   //Var0
 const char s_31[] PROGMEM = "0gb32r1C32g2C32b8C0rb32g4C32b6C0rg5C32gb0r3C3,9>";   //col_def
 const char s_32[] PROGMEM = "1,9,0Uclu";   //col_show
 const char s_33[] PROGMEM = "4,19,10U~30,5,4,0,4-,1,~,~3+,~U>uu";   //memo_set
-const char s_34[] PROGMEM = "0,15-,10>15,11>0,15-,14>15,15>0,15-,18>15,19>";   //Fade params 
+const char s_34[] PROGMEM = "0,15-,10>15,11>0,15-,14>15,15>0,15-,18>15,19>";   //Fade params
 const char s_35[] PROGMEM = "";   //Fade_up
 const char s_36[] PROGMEM = "";   //Fade_up
 const char s_37[] PROGMEM = "";   //Fade_up
@@ -91,6 +91,11 @@ const char *const charbefehle[charbefM] PROGMEM = {c_00, c_01, c_02, c_03, c_04,
    Led Driver Source from
    https://github.com/cpldcpu/light_ws2812/blob/master/light_ws2812_AVR/light_ws2812.c
    Author: Tim (cpldcpu@gmail.com)
+   // Timing in ns       16 MHz(62.5 ns pro Takt)
+   w_zeropulse   350     5.6    3
+   w_onepulse    900    14.4    7
+   w_totalperiod 1250     20   10
+
 */
 void ws2812_sendarray_mask(uint8_t *, uint16_t , uint8_t);
 

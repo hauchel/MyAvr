@@ -431,7 +431,7 @@ void prgPop() {
 }
 
 void wasPush(int was) {
-  msgF(F("wasPush"), inp);
+  //msgF(F("wasPush"), inp);
   if (inpSP >= inpSM) {
     errF(F("inp Overflow"), inpSP);
   } else {
@@ -446,7 +446,7 @@ void inpPush() {
 int inpPop() {
   if (inpSP > 0) {
     inpSP --;
-    msgF(F("inpPop"), inpStck[inpSP]);
+    //msgF(F("inpPop"), inpStck[inpSP]);
     return inpStck[inpSP];
   } else {
     errF(F("inpstack Underflow"), 0);
@@ -842,7 +842,11 @@ char doCmd(unsigned char tmp) {
       break;
     case 'y':  //
       zwi = inp;
-      if (inpSP > 0) inp =  inpPop() ; //only if something pushed???->Verwirrung gross
+      if (inpSP > 0) {
+        inp =  inpPop(); //if  something pushed???->Verwirrung grande
+      } else {
+        inp = inpsw;    // else take it from  swap
+      }
       exec(zwi, 1);
       break;
     case 'Y':  //
@@ -941,10 +945,10 @@ void loop() {
     doCmd(c);
   }
 
-  if (rc5_ok) {
+/*  if (rc5_ok) {
     RC5_again();
     doRC5();
-  }
+  } */
 
   if (runMode > 0) { //executing
     c = chunk.bef[befP];
@@ -962,11 +966,12 @@ void loop() {
             agc = agM;
           }
           refresh();  //last upd should be included in time
-          if (verb > 0) {
+          /*if (verb > 0) {
             startTim = micros() - startTim;
             Serial.print (F("  Fini us="));
             Serial.println (startTim);
           }
+          */
         } //eof
       }  else { // cmd
         doCmd(c);
