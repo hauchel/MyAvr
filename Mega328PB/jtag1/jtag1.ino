@@ -1,24 +1,24 @@
 /* jtag test fot Mega328PB (8Mhz)
-  using MiniCore as its PB, might have problems if compiling with other cores (e.g. printf)
+  using MiniCore as its PB, might have issues if compiling with other cores (e.g. printf)
         JTAG(1)
   J100-1  TCK   yell  out
-  J100-2  GND   GND
+  J100-2  GND         GND
   J100-3  TDO   grn   in (!) we are the debugger
-  J100-4  VCC   VCC
+  J100-4  VCC         VCC
   J100-5  TMS   ws    out
-  J100-6  nSRST   CLK
-  J100-7  VCC   VCC
+  J100-6  nSRST
+  J100-7  VCC         VCC
   J100-8  -
   J100-9  TDI pink    out
-  J100-10 GND   GND
+  J100-10 GND         GND
 */
 
 const byte pTCK = 10; //PB2
 const byte pTDO = 11; //PB3
 const byte pTMS = 12; //PB4
 const byte pTDI = 13; //PB5
-const byte pSet = 9;  //PB1 0 recording start 1 recording stop
-
+const byte pSet = 9;  //PB1 0 use H or L to set
+const byte pExe = 8;  //PB0 0 Idle  1 exing
 //could be changed to direct port access
 #define TCKLo digitalWrite(pTCK, LOW)
 #define TCKHi digitalWrite(pTCK, HIGH)
@@ -28,14 +28,19 @@ const byte pSet = 9;  //PB1 0 recording start 1 recording stop
 #define TDIHi digitalWrite(pTDI, HIGH)
 
 byte verb = 1;
-uint16_t rea;   // read from
-byte numbit;    // number of bits to shift
-
-byte runMode = 0; //
-const byte befM = SPM_PAGESIZE;        // size bef
+uint32_t rea;     // up to 32 bit read from TDO
+byte    reaCnt;   // # of bits read
+byte numbit;      // number of bits to shift out
+byte basL;    // add to fuff on prog
+byte basH;
+byte basK;
+byte runMode = 0; // 3: take cmd from bef
+const byte befM = SPM_PAGESIZE;  // size bef
 char  bef[befM];
-int befP;
 
+const byte inpSM = 7;         // Stack for inps
+int inpStck[inpSM];           //
+byte  inpSP = 0;              //
 
 void prnt(PGM_P p) {
   // output char * from flash,
@@ -55,7 +60,6 @@ void msgF(const __FlashStringHelper *ifsh, uint16_t n) {
   }
 }
 
-
 void errF(const __FlashStringHelper *ifsh, int n) {
   runMode = 0;
   Serial.print(F("ErrF: "));
@@ -70,77 +74,58 @@ void prn3u(uint16_t a) {
   Serial.print(str);
 }
 
-#include "mybefs.h"
+#include "myJtags.h"
+#include "myBefs.h"
 
-
-bool pgm2Bef(byte num) {
-  if (num >= pgmbefM) {
-    errF(F("pgm2Bef "), num);
-    return false;
-  }
-  strcpy_P(bef, (char *)pgm_read_word(&(pgmbef[num])));
-  return true;
-}
-
-void showBef() {
-  char bf;
-  if (befP < 0) {
-    bf = '?';
+void inpPush(uint16_t was) {
+  if (inpSP >= inpSM) {
+    errF(F("inp Overflow"), inpSP);
   } else {
-    bf = bef[befP];
+    inpStck[inpSP] = was; // is inc'd on pop
+    inpSP++;
   }
-  Serial.print("'");
-  Serial.print(bf);
-  Serial.print("' '");
-  Serial.print(bef);
-  Serial.println("'");
 }
 
-byte seriBef() {
-  // blocking read Bef, returns 0 if terminated by CR, 1 by "
-  byte i;
-  char b;
-  Serial.print(F("Bef :"));
-  for (i = 0; i < 50; i++) {
-    while (Serial.available() == 0) {
-    }
-    b = Serial.read() ;
-    Serial.print(b);
-    if (b == 13) {
-      bef[i] = 0;
-      return 0;
-    }
-    if (b == '"') {
-      bef[i] = 0;
-      return 1;
-    }
-    bef[i] = b;
-  } // loop
-  errF (F("Seri "), i);
-  bef[i] = 0;
-  return 9;
+int inpPop() {
+  if (inpSP > 0) {
+    inpSP --;
+    return inpStck[inpSP];
+  } else {
+    errF(F("inpstack Underflow"), 0);
+    return 0;
+  }
 }
+
+void runne() {
+  if (runMode > 0) {    // already running
+    prgPush();          // store  current
+    befP = -1;          // is inced to 0 in docmd
+  } else {  // first call
+    befP = 0;
+    runMode = 3;
+    digitalWrite(pExe, HIGH);
+  }
+}
+
 void exec(byte num) {
   msgF(F("ExeFl"), num);
   if (!pgm2Bef(num)) {
-    return;         // err already thrown
+    runMode = 0;
+    return;
   }
-  befP = 0;
-  runMode = 3;
+  runne();
 }
 
 
 void jto(byte b) {
-  // outputs one bit 0 or 1
-  // updates rea
+  // outputs one bit 0 or 1 on TMS
   if (b == 0) {
     TMSLo;
   } else {
     TMSHi;
   }
   TCKHi; // 13 us
-  rea = rea << 1;
-  if (digitalRead(pTDO)) rea = rea | 1 ;
+  delayMicroseconds(1); //Scherz
   TCKLo;  //46
 }
 
@@ -152,37 +137,26 @@ void jReset() {
   jto(0);
 }
 
-void jData4(byte b) {
-  // from shift-IR add 4
-  rea = 0;
-  for (int i = 0; i < 4; i++) {
-    if ((b & 1) == 0) TDILo; else TDIHi;
-    b = b >> 1;
-    if (i == 3) TMSHi;
-    TCKHi;
-    delayMicroseconds(1);
-    TCKLo;
-  }
-  // now in exit1-IR
-}
 void toShiftDR() {
-  // set to ShiftDR
-  msgF(F("to ShiftDR"), 0);
+  // from RuTe to ShiftDR
+  //msgF(F("to ShiftDR"), 0);
   jto(1);
   jto(0);
   jto(0); // TMS low for the Data
 }
 
-void doShiftDR(uint16_t data, byte anz) {
-  // in ShiftDR with TMS lo enter anz bit
-  msgF(F("doShiftDR"), anz);
-  rea = 0;
+void doShift(uint16_t data, byte anz) {
+  // in ShiftDR or IR with TMS lo enter anz bit then back to RuTe
+  //msgF(F("doShift"), anz);
+  rea = 0;  reaCnt = 0;
   for (int i = 1; i <= anz; i++) {
     if ((data & 1) == 0) TDILo; else TDIHi;
     data = data >> 1;
     if (i == anz) TMSHi;
     TCKHi;
-    delayMicroseconds(1);
+    rea = rea >> 1;
+    reaCnt++;                     //12345678
+    if (digitalRead(pTDO)) rea |= 0x80000000L ;
     TCKLo;
   }  // in exit1
   jto(1); // in Update
@@ -190,16 +164,48 @@ void doShiftDR(uint16_t data, byte anz) {
 }
 
 void setInstruct(byte b) {
-  // set instruction Register
+  // set instruction Register from RuTe
   b = b & 0x0F;
-  msgF(F("Instruct "), b);
+  //msgF(F("Instruct "), b);
   jto(1);
   jto(1);
   jto(0);
   jto(0); // TMS low for the Data
-  jData4(b);  // in exit1-IR
-  jto(1);     // in update-IR
-  jto(0);     // home
+  doShift(b, 4); // shifts IR, then in RuTe
+}
+
+void prog (byte num) {
+  // enter 15 bit instruction #num from RuTe
+  // from RuTe, in RuTe when done
+  // must be in Program Mode
+  uint16_t w;
+  char t;
+  if (num >= ftxM) {
+    errF(F("prog Ftx"), num);
+    return;
+  }
+  t = pgm_read_byte( (char *)pgm_read_word(&(ftx[num]))); // pointer auf Beschreibung
+
+  w = fuff[num];
+  switch (t) {
+    case ' ':
+      break;
+    case 'K':
+      w += basK;
+      break;
+    case 'H':
+      w += basH;
+      break;
+    case 'L':
+      w += basL;
+      break;
+    default:
+      Serial.print ("typ?");
+      Serial.println (byte(t));
+  } // case
+  Serial.printf(F("prog %4X \n"), w);
+  toShiftDR();
+  doShift(w, 15); // in RuTe
 }
 
 void setActive () {
@@ -209,6 +215,9 @@ void setActive () {
   pinMode(pTMS, OUTPUT);
   pinMode(pTDO, INPUT_PULLUP);
   pinMode(pSet, OUTPUT);
+  digitalWrite(pSet, LOW);
+  pinMode(pExe, OUTPUT);
+  digitalWrite(pExe, LOW);
 }
 
 void setPassive () {
@@ -216,13 +225,31 @@ void setPassive () {
   pinMode(pTDI, INPUT);
   pinMode(pTMS, INPUT);
   pinMode(pTDO, INPUT);
-  pinMode(pSet, INPUT);
+  pinMode(pSet, OUTPUT);
+  pinMode(pExe, OUTPUT);
+}
+
+void showRea() {
+  // have to adjust
+  //Serial.printf(F("\bRea befor hex %lX  cnt %2u\n"), rea, reaCnt);
+  rea = rea >> (32 - reaCnt);
+  Serial.printf(F("\bRea (%2u) %lX \n"), reaCnt, rea);
+  rea = 0; // as changed anyway
+  reaCnt = 0;
+}
+
+void showRegs() {
+  Serial.println();
+  Serial.printf(F("PORTB: %02X \n"), PORTB & 0x3F);
+  Serial.printf(F("PINB : %02X \n"), PINB & 0x3F);
+  Serial.printf(F("DDRB : %02X \n"), DDRB & 0x3F);
 }
 
 void monitor() {
   byte old = 0;
   byte cur;
   setPassive();
+  showRegs();
   Serial.println(F("Monitor, Reset to exit"));
   while (1) {
     cur = PINB & 0x3F;
@@ -233,9 +260,9 @@ void monitor() {
   }
 }
 
-void doCmd(unsigned char c) {
-  static int  inp;                   // numeric input
-  static bool inpAkt = false;        // true if last input was a number
+bool doCmd(unsigned char c) {
+  static uint16_t  inp;                   // numeric input
+  static bool inpAkt = false;        // true if last input was a number (is returned)
   bool weg = false;
   // handle numbers
   if ( c == 8) { //backspace removes last digit
@@ -257,15 +284,80 @@ void doCmd(unsigned char c) {
   if (weg) {
     // Serial.print("\b\b\b\b");
     // Serial.print(inp);
-    return;
+    return inpAkt;
   }
   inpAkt = false;
-  //Serial.println();
   switch (c) {
     case ' ':
       break;
     case 'a':
       setActive();
+      break;
+    case 'b': //
+      break;
+    case 'd':
+      toShiftDR();
+      break;
+    case 'e':
+      doShift(inp, numbit);
+      break;
+    case 'g':
+      pgm2Bef(inp);
+      showBef();
+      break;
+    case 'i':
+      showRegs();
+      break;
+    case 'h':
+      basH = inp;
+      msgF(F("basH"), basH);
+      break;
+    case 'j':
+      setInstruct(inp);
+      break;
+    case 'k':
+      basK = inp;
+      msgF(F("basK"), basK);
+      break;
+    case 'l':
+      basL = inp;
+      msgF(F("basL"), basL);
+      break;
+
+    case 'm':
+      monitor();
+      break;
+    case 'n':
+      numbit = inp;
+      //msgF(F("numbit"), numbit);
+      break;
+    case 'p':
+      prog(inp);
+      break;
+    case 't':
+      msgF(F("to Runtest"), 0);
+      jReset();
+      break;
+    case 'r':
+      showRea();
+      break;
+    case 'v':
+      if (verb == 0) {
+        verb = 1;
+        Serial.println(F("Verbo"));
+      } else {
+        verb = 0;
+        Serial.println(F("Silent"));
+      }
+      break;
+    case 'x':  // load and run
+      exec(inp);
+      break;
+    case 'y':  // run current
+      runne();
+      break;
+    case 'z':
+      showTxtAll();
       break;
     case 'A':
       TCKHi;
@@ -279,15 +371,9 @@ void doCmd(unsigned char c) {
       TMSHi;
       msgF(F("TMS"), 1);
       break;
-    case 'd':
-      toShiftDR();
-      break;
     case 'D':
       TMSLo;
       msgF(F("TMS"), 0);
-      break;
-    case 'e':
-      doShiftDR(inp, numbit);
       break;
     case 'E':
       TDIHi;
@@ -305,67 +391,42 @@ void doCmd(unsigned char c) {
       digitalWrite(pSet, LOW);
       msgF(F("Set"), 0);
       break;
-    case 'i':
-      Serial.println();
-      Serial.printf(F("PORTB: %02X \n"), PORTB & 0x3F);
-      Serial.printf(F("PINB : %02X \n"), PINB & 0x3F);
-      Serial.printf(F("DDRB : %02X \n"), DDRB & 0x3F);
+    case 'M':
+      digitalWrite(pExe, HIGH);
+      msgF(F("Exe"), 1);
       break;
-    case 'j':
-      setInstruct(inp);
+    case 'N':
+      digitalWrite(pExe, LOW);
+      msgF(F("Exe"), 0);
       break;
-    case 'm':
-      monitor();
-      break;
-    case 'n':
-      numbit = inp;
-      msgF(F("numbit"), numbit);
-      break;
-    case 'p':
-      setPassive();
-      break;
-    case 't':
-      msgF(F("to Runtest"), 0);
-      jReset();
-      break;
-    case 'r':
-      msgF(F("Rea was"), rea);
-      rea = 0;
-      break;
-    case 'v':
-      if (verb == 0) {
-        verb = 1;
-        Serial.println(F("Verbo"));
-      } else {
-        verb = 0;
-        Serial.println(F("Silent"));
-      }
-      break;
-    case 'x':  // load and run
-      exec(inp);
-      break;
-    case 'y':  // run current
-      befP = 0;
-      runMode = 3;
-      break;
-   case 'z':  // run current
-      showTxtAll();
-      break;      
+
     case '"':   // to bef
       seriBef();
       showBef();
+      Serial.println();
       break;
     case 13:
       showBef();
+      Serial.printf(F("inp: %4X  K: %2X L: %2X H: %2x\n"), inp, basK, basL, basH);
+      Serial.println(inp);
       break;
-
+    case ',':   //
+      inpPush(inp);
+      break;
+    case '.':   //
+      inp = inpPop();
+      break;
     case 223:   //ß 223 ä 228 ö 246 ü 252
+      showStack();
       break;
-    case 246:   //ß 223 ä 228 ö 246 ü 252
+    case 252:   // ü 252
+      showFtxAll();
+      break;
+    case 246:   // ö 246
       Serial.print("0");
       jto(0);
       break;
-    case 228:   //ß 223 ä 228 ö 246 ü 252
+    case 228:   //ä 228
       jto(1);
       Serial.print("1");
       break;
@@ -374,10 +435,11 @@ void doCmd(unsigned char c) {
       Serial.println (byte(c));
       c = '?';
   } //switch
+  return inpAkt;
 }
 
 void setup() {
-  const char ich[] PROGMEM = "jtag1" __DATE__  " " __TIME__;
+  const char ich[] PROGMEM = "jtag1 " __DATE__  " " __TIME__;
   Serial.begin(38400);
   Serial.println(ich);
   setActive();
@@ -389,19 +451,23 @@ void loop() {
   if (Serial.available() > 0) {
     c = Serial.read();
     Serial.print(char(c));
-    doCmd(c);
-    Serial.print(F(":"));
+    if (!doCmd(c)) {
+      Serial.print(F(":\b"));
+    }
   }
 
   if (runMode > 0) { //executing
     c = bef[befP];
-    if (c == 0) { //eof
-      msgF(F("bef done "), 0);
-      runMode = 0;
+    if (c == 0) { //eobef
+      if (stackP > 0) { // return to caller
+        prgPop();
+      } else { //end of execution
+        digitalWrite(pExe, LOW);
+        runMode = 0;
+      }
     }  else { // cmd
       doCmd(c);
       befP++;
     }
   } // runmode
-
 } // loop

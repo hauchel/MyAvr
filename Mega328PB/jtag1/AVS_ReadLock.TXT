@@ -1,0 +1,144 @@
+name	value
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Test-Logic-Reset
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0x1
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x000D7803
+0x4978203F
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0xC
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x1
+0x0
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0x4
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0xA370
+0x0000
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0xB
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x0D
+0x00
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x0000
+0x0000
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0x5
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x2304
+0x33FF
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x3600
+0x23FF
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x3700
+0x36FF
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0x5
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x2300
+0x37FF
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x3300
+0x23FF
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Run-Test/Idle
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0x4
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x0000
+0xA370
+JTAG	Exit1-DR
+JTAG	Update-DR
+JTAG	Select-DR-Scan
+JTAG	Select-IR-Scan
+JTAG	Capture-IR
+JTAG	Shift-IR\n0xC
+0x1
+JTAG	Exit1-IR
+JTAG	Update-IR
+JTAG	Select-DR-Scan
+JTAG	Capture-DR
+JTAG	Shift-DR\n0x0
+0x1
+JTAG	Exit1-DR
+JTAG	Update-DR
