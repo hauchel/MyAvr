@@ -1,4 +1,4 @@
-Just a text info file
+Just a text file wirth my notes, .h to see it in IDE
 Values to put in IR:
 Tap={
      '0x0':'??'
@@ -27,5 +27,25 @@ Programming:
 
 Basic commands
 
-EXTEST
-SAMPLE/PRELOAD
+Combination of bas are stored in
+
+Commands see doCmd() and doBufCmd()
+Config stored in EEProm, selected
+
+  c   select config
+  h   set current config h
+  l   set current config l
+  k   set current config k
+  bz      showConfigs();
+  bf      fillBuff(inp);
+  bg      getConfigs();
+  bp      putConfigs();
+  bn    
+  bs      showBuff();
+  br      readmyPage(inp);
+  bw      writemyPage(inp);
+
+Hi Level 
+
+
+Jtag-Related

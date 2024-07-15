@@ -27,21 +27,25 @@ const byte pExe = 8;  //PB0 0 Idle  1 exing
 #define TDILo digitalWrite(pTDI, LOW)
 #define TDIHi digitalWrite(pTDI, HIGH)
 
-byte verb = 1;
+byte verb = 1;    // 1 2
+//  4: show Prog
+//  8: show low lev JTAG
+// 16: show bef exec
 uint32_t rea;     // up to 32 bit read from TDO
-byte    reaCnt;   // # of bits read
-byte numbit;      // number of bits to shift out
-byte basL;    // add to fuff on prog
-byte basH;
-byte basK;
+byte reaCnt;      // # of bits read
+byte numbit;      // # of bits to shift out
+
 byte runMode = 0; // 3: take cmd from bef
-const byte befM = SPM_PAGESIZE;  // size bef
+const byte befM = 100;  // size bef
 char  bef[befM];
 
-const byte inpSM = 7;         // Stack for inps
+const byte inpSM = 20;        // Stack for inps
 int inpStck[inpSM];           //
 byte  inpSP = 0;              //
 
+/*
+  Helpers for Serial
+*/
 void prnt(PGM_P p) {
   // output char * from flash,
   while (1) {
@@ -53,11 +57,10 @@ void prnt(PGM_P p) {
 }
 
 void msgF(const __FlashStringHelper *ifsh, uint16_t n) {
-  if (verb > 0) {
-    PGM_P p = reinterpret_cast<PGM_P>(ifsh);
-    prnt(p);
-    Serial.println(n);
-  }
+  Serial.print(F(" "));
+  PGM_P p = reinterpret_cast<PGM_P>(ifsh);
+  prnt(p);
+  Serial.println(n);
 }
 
 void errF(const __FlashStringHelper *ifsh, int n) {
@@ -68,25 +71,25 @@ void errF(const __FlashStringHelper *ifsh, int n) {
   Serial.println(n);
 }
 
-void prn3u(uint16_t a) {
-  char str[10];
-  sprintf(str, "%3u ", a);
-  Serial.print(str);
-}
-
 #include "myJtags.h"
 #include "myBefs.h"
+#include "myBuf.h"
 
+/*
+  Execution related
+*/
 void inpPush(uint16_t was) {
+  if (verb & 16) msgF(F("inpPush"), was);
   if (inpSP >= inpSM) {
     errF(F("inp Overflow"), inpSP);
   } else {
-    inpStck[inpSP] = was; // is inc'd on pop
+    inpStck[inpSP] = was;
     inpSP++;
   }
 }
 
 int inpPop() {
+  if (verb & 16) msgF(F("inpPop"), inpSP);
   if (inpSP > 0) {
     inpSP --;
     return inpStck[inpSP];
@@ -96,27 +99,27 @@ int inpPop() {
   }
 }
 
-void runne() {
+void runne(byte num) {
+  if (verb & 16) msgF(F("runne"), num); else Serial.println();
   if (runMode > 0) {    // already running
     prgPush();          // store  current
     befP = -1;          // is inced to 0 in docmd
   } else {  // first call
-    befP = 0;
+    befP = 0;           // not inced (!)
     runMode = 3;
-    digitalWrite(pExe, HIGH);
   }
+  if (num < 255) {    // dont load when immediate exec with y
+    if (!pgm2Bef(num)) {
+      runMode = 0;
+      return;
+    }
+  }
+  digitalWrite(pExe, HIGH); // no harm if already high
 }
 
-void exec(byte num) {
-  msgF(F("ExeFl"), num);
-  if (!pgm2Bef(num)) {
-    runMode = 0;
-    return;
-  }
-  runne();
-}
-
-
+/*
+  JTAG Basics
+*/
 void jto(byte b) {
   // outputs one bit 0 or 1 on TMS
   if (b == 0) {
@@ -139,7 +142,7 @@ void jReset() {
 
 void toShiftDR() {
   // from RuTe to ShiftDR
-  //msgF(F("to ShiftDR"), 0);
+  if (verb & 8) msgF(F("to ShiftDR"), 0);
   jto(1);
   jto(0);
   jto(0); // TMS low for the Data
@@ -147,7 +150,7 @@ void toShiftDR() {
 
 void doShift(uint16_t data, byte anz) {
   // in ShiftDR or IR with TMS lo enter anz bit then back to RuTe
-  //msgF(F("doShift"), anz);
+  if (verb & 8) msgF(F("doShift"), anz);
   rea = 0;  reaCnt = 0;
   for (int i = 1; i <= anz; i++) {
     if ((data & 1) == 0) TDILo; else TDIHi;
@@ -166,7 +169,7 @@ void doShift(uint16_t data, byte anz) {
 void setInstruct(byte b) {
   // set instruction Register from RuTe
   b = b & 0x0F;
-  //msgF(F("Instruct "), b);
+  if (verb & 8) msgF(F("Instruct "), b);
   jto(1);
   jto(1);
   jto(0);
@@ -175,39 +178,146 @@ void setInstruct(byte b) {
 }
 
 void prog (byte num) {
-  // enter 15 bit instruction #num from RuTe
+  // enter 15 bit instruction #num
   // from RuTe, in RuTe when done
   // must be in Program Mode
   uint16_t w;
+  byte in;
   char t;
   if (num >= ftxM) {
     errF(F("prog Ftx"), num);
     return;
   }
-  t = pgm_read_byte( (char *)pgm_read_word(&(ftx[num]))); // pointer auf Beschreibung
-
   w = fuff[num];
+  t = pgm_read_byte( (char *)pgm_read_word(&(ftx[num]))); // 1. char Beschreibung
   switch (t) {
     case ' ':
       break;
     case 'K':
-      w += basK;
+      w += idx[cnf].basK;
       break;
     case 'H':
-      w += basH;
+      w += idx[cnf].basH;
       break;
     case 'L':
-      w += basL;
+      w += idx[cnf].basL;
+      break;
+    case 'D':
+      in = inpPop(); //byte now
+      w += in;
       break;
     default:
-      Serial.print ("typ?");
-      Serial.println (byte(t));
+      errF(F("prog Typ"), byte(t));
+      return;
   } // case
-  Serial.printf(F("prog %4X \n"), w);
+  if (verb & 4) Serial.printf(F("prog  %2u %c %4X \n"), num, t, w);
   toShiftDR();
   doShift(w, 15); // in RuTe
 }
 
+void progf (byte num, uint16_t plu) {
+  // enter 15 bit instruction #num with w+plu
+  // from RuTe, in RuTe when done
+  // must be in Program Mode
+  uint16_t w;
+  if (num >= ftxM) {
+    errF(F("prog Ftx"), num);
+    return;
+  }
+  w = fuff[num] + plu;
+  if (verb & 4) Serial.printf(F("progf %2u %4X \n"), num, w);
+  toShiftDR();
+  doShift(w, 15); // in RuTe
+}
+
+
+byte lowRea() {
+  // returns low byte of adjusted Rea
+  uint32_t rex;
+  rex = rea >> (32 - reaCnt);
+  return rex & 0xFF;
+}
+
+void readData(byte anz) {
+  // reads and stores anz words to buffer
+  // from RuTe, in RuTe when done
+  // must be in Program Mode
+  // start low 0 or 128, hi not inced
+
+  uint8_t lo, hi, ex, dl, dh, pt;
+  lo = idx[cnf].basL;
+  hi = idx[cnf].basH;
+  ex = idx[cnf].basK;
+
+  if (anz > bufM / 2) {
+    errF(F("prog bufm?"), anz);
+    return;
+  }
+
+  pt = 0;
+  prog(0);
+  progf(1, ex);
+  progf(2, hi);
+
+  for (int i = 1; i <= anz; i++) {
+    progf(3, lo);
+    prog(5);
+    prog(6);  //low
+    dl = lowRea();
+    ramBuff[pt++] = dl;
+    prog(7);  //Hi
+    dh = lowRea();
+    ramBuff[pt++] = dh;
+    lo += 2;
+    // hi inc?
+  }
+}
+
+void writeData(byte anz) {
+  // writes data from buffer to flash
+  // from RuTe, in RuTe when done
+  // must be in Program Mode
+
+  uint8_t lo, hi, ex, dl, dh, pt;
+  lo = idx[cnf].basL;
+  hi = idx[cnf].basH;
+  ex = idx[cnf].basK;
+
+  if (anz > bufM / 2) {
+    errF(F("Write bufm?"), anz);
+    return;
+  }
+
+  pt = 0;
+  prog(4);
+  progf(1, ex);
+  progf(2, hi);
+
+  for (int i = 1; i <= anz; i++) {
+    if (verb & 4) Serial.printf(F("write %2u at %2x %2x \n"), i, lo, hi);
+    progf(3, lo);
+    dl = ramBuff[pt++];
+    progf(8, dl);
+    dh = ramBuff[pt++];
+    progf(9, dh);
+    // latch data now or later?
+    lo += 2;
+    // no hi inc
+  }
+  // latch
+  prog(20);
+  prog(21);
+  prog(22);
+  // write
+  prog(23);
+  prog(24);
+  prog(25);
+  prog(26);
+}
+
+/*
+  Misc
+*/
 void setActive () {
   pinMode(pTCK, OUTPUT);
   TCKLo;
@@ -229,11 +339,11 @@ void setPassive () {
   pinMode(pExe, OUTPUT);
 }
 
-void showRea() {
+void showOut() {
   // have to adjust
   //Serial.printf(F("\bRea befor hex %lX  cnt %2u\n"), rea, reaCnt);
   rea = rea >> (32 - reaCnt);
-  Serial.printf(F("\bRea (%2u) %lX \n"), reaCnt, rea);
+  Serial.printf(F("\bOut (%2u) %lX \n"), reaCnt, rea);
   rea = 0; // as changed anyway
   reaCnt = 0;
 }
@@ -261,16 +371,22 @@ void monitor() {
 }
 
 bool doCmd(unsigned char c) {
-  static uint16_t  inp;                   // numeric input
-  static bool inpAkt = false;        // true if last input was a number (is returned)
+  static uint16_t  inp;              // numeric input
+  static bool inpAkt = false;       // true if last input was a number (is returned)
+  static byte cmdMode = 0;          // 1 config
   bool weg = false;
+
+  if (cmdMode == 1) {
+    doBufCmd(c, inp);
+    cmdMode = 0;
+    return false;
+  }
+
   // handle numbers
   if ( c == 8) { //backspace removes last digit
     weg = true;
     inp = inp / 10;
-  } else  if (c == '#') {
-    inp++;
-    weg = true;
+    return inpAkt;
   }
   if ((c >= '0') && (c <= '9')) {
     weg = true;
@@ -280,10 +396,6 @@ bool doCmd(unsigned char c) {
       inpAkt = true;
       inp = c - '0';
     }
-  }
-  if (weg) {
-    // Serial.print("\b\b\b\b");
-    // Serial.print(inp);
     return inpAkt;
   }
   inpAkt = false;
@@ -294,6 +406,13 @@ bool doCmd(unsigned char c) {
       setActive();
       break;
     case 'b': //
+      cmdMode = 1;
+      Serial.print("\b>");
+      break;
+    case 'c': //
+      cnf = inp;
+      msgF(F("config now"), cnf);
+      showConfig(cnf);
       break;
     case 'd':
       toShiftDR();
@@ -309,21 +428,20 @@ bool doCmd(unsigned char c) {
       showRegs();
       break;
     case 'h':
-      basH = inp;
-      msgF(F("basH"), basH);
+      idx[cnf].basH = inp;
+      msgF(F("basH"), inp);
       break;
     case 'j':
       setInstruct(inp);
       break;
     case 'k':
-      basK = inp;
-      msgF(F("basK"), basK);
+      idx[cnf].basK = inp;
+      msgF(F("basK"), inp);
       break;
     case 'l':
-      basL = inp;
-      msgF(F("basL"), basL);
+      idx[cnf].basL = inp;
+      msgF(F("basL"), inp);
       break;
-
     case 'm':
       monitor();
       break;
@@ -331,30 +449,43 @@ bool doCmd(unsigned char c) {
       numbit = inp;
       //msgF(F("numbit"), numbit);
       break;
+    case 'o':
+      showOut();
+      break;
+
     case 'p':
       prog(inp);
       break;
+    case 'r':
+      readData(64);
+      showBuff();
+      break;
+    case 'R':
+      readData(inp);
+      showBuff();
+      break;
+
     case 't':
-      msgF(F("to Runtest"), 0);
+      if (verb & 8) msgF(F("to Runtest"), 0);
       jReset();
       break;
-    case 'r':
-      showRea();
-      break;
+
     case 'v':
-      if (verb == 0) {
-        verb = 1;
-        Serial.println(F("Verbo"));
-      } else {
-        verb = 0;
-        Serial.println(F("Silent"));
-      }
+      verb = inp;
+      msgF(F("Verbo"), verb);
+
+      break;
+    case 'w':
+      writeData(64);
+      break;
+    case 'W':
+      writeData(inp);
       break;
     case 'x':  // load and run
-      exec(inp);
+      runne(inp);
       break;
     case 'y':  // run current
-      runne();
+      runne(255);
       break;
     case 'z':
       showTxtAll();
@@ -407,8 +538,8 @@ bool doCmd(unsigned char c) {
       break;
     case 13:
       showBef();
-      Serial.printf(F("inp: %4X  K: %2X L: %2X H: %2x\n"), inp, basK, basL, basH);
       Serial.println(inp);
+      showConfig(cnf);
       break;
     case ',':   //
       inpPush(inp);
@@ -416,6 +547,15 @@ bool doCmd(unsigned char c) {
     case '.':   //
       inp = inpPop();
       break;
+    case '#':   //
+      idx[cnf].basL += 2;
+      msgF(F("basL"), idx[cnf].basL);
+      break;
+    case '+':   //
+      idx[cnf].basL += inp;
+      msgF(F("basL"), idx[cnf].basL);
+      break;
+
     case 223:   //ß 223 ä 228 ö 246 ü 252
       showStack();
       break;
@@ -443,6 +583,7 @@ void setup() {
   Serial.begin(38400);
   Serial.println(ich);
   setActive();
+  getConfigs();
 }
 
 void loop() {

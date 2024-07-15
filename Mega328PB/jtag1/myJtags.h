@@ -1,6 +1,10 @@
-const byte ftxM = 30;
-//Flash access first char of Text is type
+// stuff to handle JTAG program commands
+// will become class when stable
 
+
+const byte ftxM = 30;
+//Flash access first char of Text is type, see prog()
+//                             ! 
 const char ftx_00[] PROGMEM = "  3a  Enter Flash Read";
 const char ftx_01[] PROGMEM = "K 3b  Load Address EHB (+K)";
 const char ftx_02[] PROGMEM = "H 3c  Load Address  HB (+H)";
@@ -9,8 +13,8 @@ const char ftx_04[] PROGMEM = "  2a  Enter Flash Write";
 const char ftx_05[] PROGMEM = "  3e1 Read Low and High Byte";
 const char ftx_06[] PROGMEM = "  3e2 Read Low and High Byte";
 const char ftx_07[] PROGMEM = "  3e3 Read Low and High Byte";
-const char ftx_08[] PROGMEM = "L 2e  Load Data LB (+L)";
-const char ftx_09[] PROGMEM = "H 2f  Load Data HB (+H)";
+const char ftx_08[] PROGMEM = "D 2e  Load Data LB (+D)";
+const char ftx_09[] PROGMEM = "D 2f  Load Data HB (+D)";
 // Fuse Reads
 const char ftx_10[] PROGMEM = "  8a  Enter F/L Bit Read";
 const char ftx_11[] PROGMEM = "  8b1 Read Extended ";
