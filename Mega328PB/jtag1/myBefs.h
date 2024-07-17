@@ -1,22 +1,22 @@
 const byte pgmbefM = 25;
 //                             Id        Reset      Prog En      Reg          Prog  read
-const char s_00[] PROGMEM = "t1jd32n0eo 12jd1n3e  4jd16n41840e 11jd5n13ed16n0e  5j 10p17p18po";
+const char s_00[] PROGMEM = "T1jd32n0eo 12jd1n3e  4jd16n41840e 11jd5n13ed16n0e  5j 10p17p18po";
 const char t_00[] PROGMEM = "To Progmode and Read locks (PM)";
-const char s_01[] PROGMEM = "t1j d 32n0eo";
+const char s_01[] PROGMEM = "T1j d 32n0eo";
 const char t_01[] PROGMEM = "Get IDCODE (0x1)";
-const char s_02[] PROGMEM = "t15j d 16n1234eo";
+const char s_02[] PROGMEM = "15j d 16n1234eo";
 const char t_02[] PROGMEM = "Bypass (0xF)";
-const char s_03[] PROGMEM = "4j d 16n41840e";
+const char s_03[] PROGMEM = "T4j d 16n41840e";
 const char t_03[] PROGMEM = "Prog Enable (0x4) ok";
-const char s_04[] PROGMEM = "4j d 16n0e";
+const char s_04[] PROGMEM = "T4j d 16n0e";
 const char t_04[] PROGMEM = "Prog Enable (0x4) zero";
-const char s_05[] PROGMEM = "t12j d 1n3e";
+const char s_05[] PROGMEM = "T12j d 1n3e";
 const char t_05[] PROGMEM = "Reset 1 (0xC)";
 const char s_06[] PROGMEM = "t12j d 1n0e";
 const char t_06[] PROGMEM = "Reset 0 (0xC)";
 const char s_07[] PROGMEM = "0p1p2p3p5p6po7po";
 const char t_07[] PROGMEM = "Read Flash";
-const char s_08[] PROGMEM = "t 4j d 16n 0e 12j d 1n0e";
+const char s_08[] PROGMEM = "4j d 16n 0e 12j d 1n0e";
 const char t_08[] PROGMEM = "Leave Prog komplett";
 
 const char s_09[] PROGMEM = "10p11p12po";
@@ -28,30 +28,33 @@ const char t_11[] PROGMEM = "read low";
 const char s_12[] PROGMEM = "10p17p18po";
 const char t_12[] PROGMEM = "read lock";
 
-const char s_13[] PROGMEM = "4p1p2p3p8p9p";
+const char s_13[] PROGMEM = "4p1p2p14x"; // never change
 const char t_13[] PROGMEM = "Enter first write (2,3,13x)";
-const char s_14[] PROGMEM = "3p8p9p"; ;
-const char t_14[] PROGMEM = "Enter next L (4,5,15x)";
-const char s_15[] PROGMEM = "20p21p22p";
+const char s_14[] PROGMEM = "3p8p9p#";  // never change
+const char t_14[] PROGMEM = "Enter next L (4,5,15x) and inc";
+const char s_15[] PROGMEM = "20p21p22p";// never change
 const char t_15[] PROGMEM = "Latch";
-const char s_16[] PROGMEM = "23p24p25p26p27po";
+const char s_16[] PROGMEM = "23p24p25p26p27po"; // never change
 const char t_16[] PROGMEM = "Write Flash Page";
 const char s_17[] PROGMEM = "13x 15x 16x";
 const char t_17[] PROGMEM = "Wri 1 mal a,b,17x";
-const char s_18[] PROGMEM = "13x 14x 15x 16x";
+const char s_18[] PROGMEM = "13x 15x 14x 15x 16x";
 const char t_18[] PROGMEM = "Wri 2 mal a,b,c,d 18x";
-const char s_19[] PROGMEM = "13x 14x 14x 15x 16x";
+const char s_19[] PROGMEM = "13x 15x 14x 15x 14x 15x 16x";
 const char t_19[] PROGMEM = "Wri 3 mal";
-const char s_20[] PROGMEM = "64,65,66,67,68,69,";
+const char s_20[] PROGMEM = "64,65,66,67,68,69";
 const char t_20[] PROGMEM = "Put 6 on stack ";
-const char s_21[] PROGMEM = "13x 15x 14x 15x 16x";
-const char t_21[] PROGMEM = "wie 18 but Latch";
-const char s_22[] PROGMEM = "13x 15x 14x 15x 14x 15x 16x";
-const char t_22[] PROGMEM = "wie 19 but Latch";
-const char s_23[] PROGMEM = "20l 13x 14x 15x 16x";
-const char t_23[] PROGMEM = "";
+const char s_21[] PROGMEM = "4bi0bm 0bw 1bi1bm 1bw 2bi2bm 2bw 3bi3bm 3bw";
+const char t_21[] PROGMEM = "Testdata in Flash 0-3";
+const char s_22[] PROGMEM = "0l0brw 64l1brw 128l2brw 192l3brw";
+const char t_22[] PROGMEM = "Schreibe 4 pages";
+const char s_23[] PROGMEM = "0brbt 0l  rbc 1brbt 64l rbc 2brbt 128l rbc 3brbt 192l rbc";
+const char t_23[] PROGMEM = "Vergleiche ";
 const char s_24[] PROGMEM = "";
 const char t_24[] PROGMEM = "";
+
+
+
 
 const char *const pgmbef[pgmbefM] PROGMEM = {
   s_00, s_01, s_02, s_03, s_04, s_05, s_06, s_07, s_08, s_09, s_10, s_11, s_12, s_13, s_14, s_15, s_16, s_17, s_18, s_19,
@@ -72,7 +75,15 @@ const byte stackM = 5;      // Stack depth for prog exec
 byte stackP;                // points to next free
 int stackBefP[stackM];      // saved befP
 byte stackBefNum[stackM];   // saved befNum
+const byte befM = 100;  // size bef
+char  bef[befM], befSav[befM];
 
+void bef2sav() {
+  memcpy(befSav, bef, befM);
+}
+void sav2bef() {
+  memcpy(bef, befSav, befM);
+}
 
 void showTxt(byte num) {
   // reads and prints
@@ -88,18 +99,23 @@ void showTxtAll() {
   // reads and prints
   Serial.println(F("\b xe"));
   for (int i = 0; i < pgmbefM; i++) {
-    prn3u(i);
+    Serial.printf(F("%3u "), i);
     showTxt(i);
   }
 }
 
 bool pgm2Bef(byte num) {
+  // gets bef from flash or saved
   if (verb & 16) msgF(F("pgm2Bef"), num);
-  if (num >= pgmbefM) {
-    errF(F("pgm2Bef "), num);
-    return false;
+  if (num == 255) {
+    sav2bef();
+  } else {
+    if (num >= pgmbefM) {
+      errF(F("pgm2Bef "), num);
+      return false;
+    }
+    strcpy_P(bef, (char *)pgm_read_word(&(pgmbef[num])));
   }
-  strcpy_P(bef, (char *)pgm_read_word(&(pgmbef[num])));
   befNum = num;
   return true;
 }

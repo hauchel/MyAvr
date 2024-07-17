@@ -1,9 +1,9 @@
 // stuff to handle JTAG program commands
 // will become class when stable
 
-
 const byte ftxM = 30;
-//Flash access first char of Text is type, see prog()
+// used program instructs see e.g AT90USB1287 manual
+// first char of Text is type, see prog()
 //                             ! 
 const char ftx_00[] PROGMEM = "  3a  Enter Flash Read";
 const char ftx_01[] PROGMEM = "K 3b  Load Address EHB (+K)";
@@ -17,8 +17,8 @@ const char ftx_08[] PROGMEM = "D 2e  Load Data LB (+D)";
 const char ftx_09[] PROGMEM = "D 2f  Load Data HB (+D)";
 // Fuse Reads
 const char ftx_10[] PROGMEM = "  8a  Enter F/L Bit Read";
-const char ftx_11[] PROGMEM = "  8b1 Read Extended ";
-const char ftx_12[] PROGMEM = "  8b2 Read Extended ";
+const char ftx_11[] PROGMEM = "  8b1 Read Fuse Ext";
+const char ftx_12[] PROGMEM = "  8b2 Read Fuse Ext";
 const char ftx_13[] PROGMEM = "  8c1 Read Fuse High";
 const char ftx_14[] PROGMEM = "  8c2 Read Fuse High";
 const char ftx_15[] PROGMEM = "  8d1 Read Fuse Low";
@@ -61,7 +61,6 @@ void showFtx(byte num) {
     Serial.println();
   }
 }
-
 
 void showFtxAll() {
   // reads and prints

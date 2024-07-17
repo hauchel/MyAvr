@@ -1,4 +1,4 @@
-/* jtag test fot Mega328PB (8Mhz)
+/* jtag test for Mega328PB (8Mhz)
   using MiniCore as its PB, might have issues if compiling with other cores (e.g. printf)
         JTAG(1)
   J100-1  TCK   yell  out
@@ -28,16 +28,16 @@ const byte pExe = 8;  //PB0 0 Idle  1 exing
 #define TDIHi digitalWrite(pTDI, HIGH)
 
 byte verb = 1;    // 1 2
+//  2: show High-Level Progs (target page read/write)
 //  4: show Prog
 //  8: show low lev JTAG
 // 16: show bef exec
+//
 uint32_t rea;     // up to 32 bit read from TDO
 byte reaCnt;      // # of bits read
 byte numbit;      // # of bits to shift out
 
 byte runMode = 0; // 3: take cmd from bef
-const byte befM = 100;  // size bef
-char  bef[befM];
 
 const byte inpSM = 20;        // Stack for inps
 int inpStck[inpSM];           //
@@ -107,12 +107,11 @@ void runne(byte num) {
   } else {  // first call
     befP = 0;           // not inced (!)
     runMode = 3;
+    if (num == 255) bef2sav(); // immediate exec with y save
   }
-  if (num < 255) {    // dont load when immediate exec with y
-    if (!pgm2Bef(num)) {
-      runMode = 0;
-      return;
-    }
+  if (!pgm2Bef(num)) {
+    runMode = 0;
+    return;
   }
   digitalWrite(pExe, HIGH); // no harm if already high
 }
@@ -120,16 +119,16 @@ void runne(byte num) {
 /*
   JTAG Basics
 */
-void jto(byte b) {
+static inline void jto(byte b) {
   // outputs one bit 0 or 1 on TMS
   if (b == 0) {
     TMSLo;
   } else {
     TMSHi;
   }
-  TCKHi; // 13 us
-  delayMicroseconds(1); //Scherz
-  TCKLo;  //46
+  TCKHi; //  13us after tmsHi
+  //delayMicroseconds(1); //Scherz
+  TCKLo;  // 14us after tckHi
 }
 
 void jReset() {
@@ -242,7 +241,7 @@ void readData(byte anz) {
   // reads and stores anz words to buffer
   // from RuTe, in RuTe when done
   // must be in Program Mode
-  // start low 0 or 128, hi not inced
+  // start low 0 or 128, hi not inced(!)
 
   uint8_t lo, hi, ex, dl, dh, pt;
   lo = idx[cnf].basL;
@@ -253,7 +252,7 @@ void readData(byte anz) {
     errF(F("prog bufm?"), anz);
     return;
   }
-
+  if (verb & 2) Serial.printf(F("\bread begin at %02X %02X \n"), hi, lo);
   pt = 0;
   prog(0);
   progf(1, ex);
@@ -268,13 +267,14 @@ void readData(byte anz) {
     prog(7);  //Hi
     dh = lowRea();
     ramBuff[pt++] = dh;
-    lo += 2;
+    lo ++;
     // hi inc?
   }
+  if (verb & 2) Serial.printf(F("read done at %02X %02X pt %3u "), hi, lo, pt);
 }
 
 void writeData(byte anz) {
-  // writes data from buffer to flash
+  // writes anz words from buffer to flash
   // from RuTe, in RuTe when done
   // must be in Program Mode
 
@@ -288,31 +288,32 @@ void writeData(byte anz) {
     return;
   }
 
+  if (verb & 2) Serial.printf(F("\bwrite begin at %02X %02X \n"), hi, lo);
   pt = 0;
   prog(4);
   progf(1, ex);
   progf(2, hi);
 
   for (int i = 1; i <= anz; i++) {
-    if (verb & 4) Serial.printf(F("write %2u at %2x %2x \n"), i, lo, hi);
+
     progf(3, lo);
     dl = ramBuff[pt++];
     progf(8, dl);
     dh = ramBuff[pt++];
     progf(9, dh);
-    // latch data now or later?
-    lo += 2;
+    // latch
+    prog(20);
+    prog(21);
+    prog(22);
+    lo ++;
     // no hi inc
   }
-  // latch
-  prog(20);
-  prog(21);
-  prog(22);
   // write
   prog(23);
   prog(24);
   prog(25);
   prog(26);
+  if (verb & 2) Serial.printf(F("write done at %02X %02X pt %3u  \n"), hi, lo, pt);
 }
 
 /*
@@ -370,26 +371,38 @@ void monitor() {
   }
 }
 
+
 bool doCmd(unsigned char c) {
   static uint16_t  inp;              // numeric input
-  static bool inpAkt = false;       // true if last input was a number (is returned)
-  static byte cmdMode = 0;          // 1 config
-  bool weg = false;
+  static bool inpAkt = false;        // true if last input was a number (is returned)
+  static byte cmdMode = 0;           // 1=buffer, 2,3 hex input
+  static char hexs[3];
 
   if (cmdMode == 1) {
     doBufCmd(c, inp);
     cmdMode = 0;
     return false;
   }
+  if (cmdMode == 2) {    // 1st digit of hex
+    hexs[0] = c;
+    cmdMode = 3;
+    return true;
+  }
+  if (cmdMode == 3) {    // 2nd digit of hex
+    hexs[1] = c;
+    hexs[2] = 0;
+    inp = (uint16_t)strtol(hexs, NULL, 16);
+    Serial.printf("\b\b%3u", inp);
+    cmdMode = 0;
+    return false;
+  }
 
   // handle numbers
   if ( c == 8) { //backspace removes last digit
-    weg = true;
     inp = inp / 10;
     return inpAkt;
   }
   if ((c >= '0') && (c <= '9')) {
-    weg = true;
     if (inpAkt) {
       inp = inp * 10 + (c - '0');
     } else {
@@ -429,21 +442,20 @@ bool doCmd(unsigned char c) {
       break;
     case 'h':
       idx[cnf].basH = inp;
-      msgF(F("basH"), inp);
+      showConfig(cnf);
       break;
     case 'j':
       setInstruct(inp);
       break;
     case 'k':
       idx[cnf].basK = inp;
-      msgF(F("basK"), inp);
+      showConfig(cnf);
       break;
     case 'l':
       idx[cnf].basL = inp;
-      msgF(F("basL"), inp);
+      showConfig(cnf);
       break;
     case 'm':
-      monitor();
       break;
     case 'n':
       numbit = inp;
@@ -465,15 +477,13 @@ bool doCmd(unsigned char c) {
       showBuff();
       break;
 
-    case 't':
+    case 'T':
       if (verb & 8) msgF(F("to Runtest"), 0);
       jReset();
       break;
-
     case 'v':
       verb = inp;
-      msgF(F("Verbo"), verb);
-
+      msgF(F("Verb"), verb);
       break;
     case 'w':
       writeData(64);
@@ -548,12 +558,13 @@ bool doCmd(unsigned char c) {
       inp = inpPop();
       break;
     case '#':   //
-      idx[cnf].basL += 2;
-      msgF(F("basL"), idx[cnf].basL);
+      idx[cnf].basL += 64;
+      if (idx[cnf].basL < 64) idx[cnf].basH++;
+      showConfig(cnf);
       break;
     case '+':   //
       idx[cnf].basL += inp;
-      msgF(F("basL"), idx[cnf].basL);
+      if (verb & 4) msgF(F("basL"), idx[cnf].basL);
       break;
 
     case 223:   //ß 223 ä 228 ö 246 ü 252
@@ -567,8 +578,9 @@ bool doCmd(unsigned char c) {
       jto(0);
       break;
     case 228:   //ä 228
-      jto(1);
-      Serial.print("1");
+      cmdMode = 2;
+      Serial.print("\b0x");
+      break;
       break;
     default:
       Serial.print ("?");
