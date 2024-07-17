@@ -35,7 +35,7 @@ byte bverb = 3;
 // 16: show bef exec
 
 void showConfig(byte i) {
-  Serial.printf("%2u  %02X %02X %02X    %3u  %3u\n", i, idx[i].basK, idx[i].basH, idx[i].basL, idx[i].basPage, idx[i].basAnz );
+  Serial.printf("\r%2u  %02X %02X %02X    %3u  %3u\n", i, idx[i].basK, idx[i].basH, idx[i].basL, idx[i].basPage, idx[i].basAnz );
 }
 
 void showConfigs() {
@@ -97,6 +97,10 @@ void buf2hex(byte adrH, byte adrL) {
   byte cs;
   const byte anz = 32;
   Serial.println();
+  if ((adrL & 0x0F) != 0) {
+    errF(F("adrL not x0:"), adrL);
+    return;
+  }
   for (int z = 0; z < 4; z++) {
     Serial.printf(F(":%02X%02X%02X00"), anz, adrH, adrL);
     cs = anz + adrH + adrL + 0;
@@ -107,15 +111,72 @@ void buf2hex(byte adrH, byte adrL) {
     }
     cs = cs ^ 0xFF;
     cs += 1;
-    adrL += anz/2;  // we have 2 byte per addr
-    if (adrL < anz) adrH++;
+    adrL += anz / 2; // we have 2 byte per addr
+    if (adrL < anz / 2) adrH++;
     Serial.printf(F("%02X\n"), cs);
   }
 }
 
-void hex2buf(char) {
-  
+bool fetch2(uint8_t* xp, uint8_t* xw) {
+  // scans bef and returns true if ok,  w and new p
+  uint8_t p;
+  uint8_t myw;
+  p = *xp;
+
+  char d[5];  //dunno why 5, but 2 crashes
+  if (bef[p] == 0) {
+    errF(F("unexpected null at "), p);
+    return false;
+  }
+  d[0] = bef[p++];
+  if (bef[p] == 0) {
+    errF(F("unexpected null at "), p);
+    return false;
+  }
+  d[1] = bef[p++];
+  d[2] = 0;
+
+  myw = (uint8_t)strtol(d, NULL, 16);
+  *xp = p;
+  *xw = myw;
+  return true;
 }
+
+uint8_t hex2buf() {
+  // fills buffer with hex file format input from bef
+  // returns 0 if ok, else type of error
+  uint8_t p = 0;
+  uint8_t bup;
+  uint8_t anz, adrH, adrL, typ;
+  uint8_t w;
+  //uint8_t cs;
+  if (!fetch2(&p, &anz)) return 1;
+  if (!fetch2(&p, &adrH)) return 2;
+  if (!fetch2(&p, &adrL)) return 3;
+  if (!fetch2(&p, &typ)) return 4;
+  if (anz != 32) {
+    errF(F("Anz not 32:"), anz);
+    return 10;
+  }
+  if (typ != 0) {
+    errF(F("Typ not 0:"), typ);
+    return 11;
+  }
+  if ((adrL & 0x0F) != 0) {
+    errF(F("adrL not x0:"), adrL);
+    return 12;
+  }
+  // pointer in buff depends on
+  bup=adrL & 0x30;
+  bup=bup<<1;
+
+  for (int i = 0; i < anz; i++)  {
+    if (!fetch2(&p, &w)) return 20;
+    ramBuff[bup++] = w;
+  }
+  return 0;
+}
+
 
 bool compBuff() {
   for (int i = 0; i < bufM; i++) {

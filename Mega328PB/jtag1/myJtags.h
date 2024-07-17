@@ -1,8 +1,8 @@
 // stuff to handle JTAG program commands
 // will become class when stable
 
-const byte ftxM = 30;
-// used program instructs see e.g AT90USB1287 manual
+const byte ftxM = 33;
+// used instructs from AT90USB1287 manual table 30-17
 // first char of Text is type, see prog()
 //                             ! 
 const char ftx_00[] PROGMEM = "  3a  Enter Flash Read";
@@ -24,7 +24,7 @@ const char ftx_14[] PROGMEM = "  8c2 Read Fuse High";
 const char ftx_15[] PROGMEM = "  8d1 Read Fuse Low";
 const char ftx_16[] PROGMEM = "  8d2 Read Fuse Low";
 const char ftx_17[] PROGMEM = "  8e1 Read Lock";
-const char ftx_18[] PROGMEM = "  8e2 Read Low";
+const char ftx_18[] PROGMEM = "  8e2 Read Lock";
 const char ftx_19[] PROGMEM = "-";
 // More
 const char ftx_20[] PROGMEM = "  2g1 Latch Data";
@@ -37,6 +37,12 @@ const char ftx_26[] PROGMEM = "  2h4 Write Flash Page";
 const char ftx_27[] PROGMEM = "  2i  Poll for Page Write Complete";
 const char ftx_28[] PROGMEM = "-";
 const char ftx_29[] PROGMEM = "-";
+// fatal if wrongly applied
+const char ftx_30[] PROGMEM = "  1a1 Chip erase";
+const char ftx_31[] PROGMEM = "  1a2 Chip erase";
+const char ftx_32[] PROGMEM = "  1a3 Poll erase";
+
+
 const uint16_t fuff[ftxM] = {
   //      0 5               1 6                2 7              3 8                    4 9
   0b010001100000010, 0b000101100000000, 0b000011100000000, 0b000001100000000, 0b010001100010000,
@@ -44,13 +50,14 @@ const uint16_t fuff[ftxM] = {
   0b010001100000100, 0b011101000000000, 0b011101100000000, 0b011111000000000, 0b011111100000000,
   0b011001000000000, 0b011001100000000, 0b011011000000000, 0b011011100000000,        0,
   0b011011100000000, 0b111011100000000, 0b011011100000000, 0b011011100000000, 0b011010100000000,
-  0b011011100000000, 0b011011100000000, 0b011011100000000,   0, 0
+  0b011011100000000, 0b011011100000000, 0b011011100000000,   0,   0,
+  0b010001110000000, 0b011000110000000, 0b011001110000000,   
 };
 const char *const ftx[ftxM] PROGMEM = {ftx_00, ftx_01, ftx_02, ftx_03, ftx_04, ftx_05, ftx_06, ftx_07, ftx_08, ftx_09,
                                        ftx_10, ftx_11, ftx_12, ftx_13, ftx_14, ftx_15, ftx_16, ftx_17, ftx_18, ftx_19,
-                                       ftx_20, ftx_21, ftx_22, ftx_23, ftx_24, ftx_25, ftx_26, ftx_27, ftx_28, ftx_29
+                                       ftx_20, ftx_21, ftx_22, ftx_23, ftx_24, ftx_25, ftx_26, ftx_27, ftx_28, ftx_29,
+                                       ftx_30, ftx_31, ftx_32,
                                       };
-
 
 void showFtx(byte num) {
   if (num >= ftxM) {

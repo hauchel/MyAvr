@@ -28,6 +28,7 @@ const byte pExe = 8;  //PB0 0 Idle  1 exing
 #define TDIHi digitalWrite(pTDI, HIGH)
 
 byte verb = 1;    // 1 2
+//  1: show buff/config after some cmds
 //  2: show High-Level Progs (target page read/write)
 //  4: show Prog
 //  8: show low lev JTAG
@@ -392,7 +393,7 @@ bool doCmd(unsigned char c) {
     hexs[1] = c;
     hexs[2] = 0;
     inp = (uint16_t)strtol(hexs, NULL, 16);
-    Serial.printf("\b\b%3u", inp);
+    Serial.printf("\b\b\b\b%u", inp);
     cmdMode = 0;
     return false;
   }
@@ -470,11 +471,11 @@ bool doCmd(unsigned char c) {
       break;
     case 'r':
       readData(64);
-      showBuff();
+      if (verb & 1) showBuff();
       break;
     case 'R':
       readData(inp);
-      showBuff();
+      if (verb & 1) showBuff();
       break;
 
     case 'T':
@@ -546,9 +547,14 @@ bool doCmd(unsigned char c) {
       showBef();
       Serial.println();
       break;
+    case ':':   // to hex
+      seriBef();
+      hex2buf();
+      //showBuf();
+      Serial.println();
+      break;
     case 13:
       showBef();
-      Serial.println(inp);
       showConfig(cnf);
       break;
     case ',':   //
@@ -560,7 +566,7 @@ bool doCmd(unsigned char c) {
     case '#':   //
       idx[cnf].basL += 64;
       if (idx[cnf].basL < 64) idx[cnf].basH++;
-      showConfig(cnf);
+      if (verb & 1) showConfig(cnf);
       break;
     case '+':   //
       idx[cnf].basL += inp;
@@ -581,11 +587,12 @@ bool doCmd(unsigned char c) {
       cmdMode = 2;
       Serial.print("\b0x");
       break;
-      break;
+
     default:
       Serial.print ("?");
       Serial.println (byte(c));
       c = '?';
+      break;
   } //switch
   return inpAkt;
 }
@@ -605,8 +612,9 @@ void loop() {
     c = Serial.read();
     Serial.print(char(c));
     if (!doCmd(c)) {
-      Serial.print(F(":\b"));
+      Serial.print(F("?\b")); //else num input
     }
+    return;
   }
 
   if (runMode > 0) { //executing
@@ -618,7 +626,7 @@ void loop() {
         digitalWrite(pExe, LOW);
         runMode = 0;
       }
-    }  else { // cmd
+    }  else { // char
       doCmd(c);
       befP++;
     }

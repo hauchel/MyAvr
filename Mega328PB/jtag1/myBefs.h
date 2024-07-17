@@ -1,4 +1,4 @@
-const byte pgmbefM = 25;
+const byte pgmbefM = 28;
 //                             Id        Reset      Prog En      Reg          Prog  read
 const char s_00[] PROGMEM = "T1jd32n0eo 12jd1n3e  4jd16n41840e 11jd5n13ed16n0e  5j 10p17p18po";
 const char t_00[] PROGMEM = "To Progmode and Read locks (PM)";
@@ -52,21 +52,25 @@ const char s_23[] PROGMEM = "0brbt 0l  rbc 1brbt 64l rbc 2brbt 128l rbc 3brbt 19
 const char t_23[] PROGMEM = "Vergleiche ";
 const char s_24[] PROGMEM = "";
 const char t_24[] PROGMEM = "";
-
-
+const char s_25[] PROGMEM = "rbh#rbh#rbh#rbh#";
+const char t_25[] PROGMEM = "Lese 4 out Hex";
+const char s_26[] PROGMEM = "";
+const char t_26[] PROGMEM = "";
+const char s_27[] PROGMEM = "";
+const char t_27[] PROGMEM = "";
 
 
 const char *const pgmbef[pgmbefM] PROGMEM = {
   s_00, s_01, s_02, s_03, s_04, s_05, s_06, s_07, s_08, s_09, s_10, s_11, s_12, s_13, s_14, s_15, s_16, s_17, s_18, s_19,
-  s_20, s_21, s_22, s_23, s_24,
+  s_20, s_21, s_22, s_23, s_24, s_25, s_26, s_27,
 };
-//,  s_25, s_26, s_27, s_28, s_29, s_30, s_31, s_32, s_33, s_34, s_35, s_36, s_37, s_38, s_39
+//,  s_28, s_29, s_30, s_31, s_32, s_33, s_34, s_35, s_36, s_37, s_38, s_39
 
 const char *const pgmtxt[pgmbefM] PROGMEM = {
   t_00, t_01, t_02, t_03, t_04, t_05, t_06, t_07, t_08, t_09, t_10, t_11, t_12, t_13, t_14, t_15, t_16, t_17, t_18, t_19,
-  t_20, t_21, t_22, t_23, t_24,
+  t_20, t_21, t_22, t_23, t_24, t_25, t_26, t_27,
 };
-//  t_25, t_26, t_27, t_28, t_29,
+//  t_28, t_29,
 
 
 int befP;                   // next to execute
@@ -117,6 +121,7 @@ bool pgm2Bef(byte num) {
     strcpy_P(bef, (char *)pgm_read_word(&(pgmbef[num])));
   }
   befNum = num;
+  befP=0; // possibly changed later
   return true;
 }
 
@@ -127,8 +132,7 @@ void showBef() {
   } else {
     bf = bef[befP];
   }
-  Serial.printf(F("%2d "), befP);
-  Serial.print(": '");
+  Serial.printf(F("\r%3d  %2d : ' "), befNum, befP);
   Serial.print(bf);
   Serial.print("' '");
   Serial.print(bef);
@@ -139,7 +143,7 @@ byte seriBef() {
   // blocking read Bef, returns 0 if terminated by CR, 1 by "
   byte i;
   char b;
-  Serial.print(F("\bBef: "));
+  //Serial.print(F("\bBef: "));
   for (i = 0; i < befM - 3; i++) { // max bef len
     while (Serial.available() == 0) {
     }
@@ -162,7 +166,7 @@ byte seriBef() {
 
 
 void showStack() {
-  Serial.printf(F("Num %3u  P %3u  stackP %2u \n"), befNum, befP, stackP);
+  Serial.printf(F("\rNum %3u  P %3u  stackP %2u \n"), befNum, befP, stackP);
   for (int i = 0; i < stackM; i++) {
     Serial.printf(F(" %3u   %3u \n"), stackBefNum[i], stackBefP[i]);
   }
