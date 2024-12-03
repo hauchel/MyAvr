@@ -5,11 +5,14 @@
                Reader/PCD   Uno
    Signal      Pin          Pin
    -----------------------------------
+   VCC
    RST/Reset   RST          9     white
-   SPI SS      SDA(SS)      10    lila
-   SPI MOSI    MOSI         11    blue
+   GND
+   IRQ
    SPI MISO    MISO         12    green
+   SPI MOSI    MOSI         11    blue
    SPI SCK     SCK          13    yell
+   SPI SS      SDA(SS)      10    lila 
    SOUND_PIN
    SERVO1_PIN
    SERVO2_PIN
