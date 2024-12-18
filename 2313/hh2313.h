@@ -1,4 +1,3 @@
-
 #ifndef _HH_2313_H_
 #define _HH_2313_H_
 
@@ -12,8 +11,6 @@
 #include <avr/pgmspace.h>
 
  
-
-
 // 9600 19200 38400
 #define USART_BAUDRATE 38400 
 #define UBRR_VALUE (((F_CPU/(USART_BAUDRATE*16UL)))-1)
@@ -45,18 +42,23 @@ void serial_putch(uint8_t data){
 void serial_num(uint16_t val){
 	// send a number as ASCII text
 	uint16_t divby=10000; // change by dataType
-  bool anf=true;
-  uint8_t tmp;
-	while (divby>=1){
-    tmp=val/divby;
-    if (anf) {
-      if (tmp!=0) {
-        anf=false;
-    		serial_putch('0'+tmp);
-      }
-    } else {
-    		serial_putch('0'+tmp);
+    bool anf=true;      // leading zero
+    uint8_t tmp;
+
+    if (val==0) {
+        serial_putch('0');
+        return;
     }
+	while (divby>=1){
+       tmp=val/divby;
+        if (anf) {
+            if (tmp!=0) {
+                anf=false;
+    	        serial_putch('0'+tmp);
+            }
+        } else {
+    		serial_putch('0'+tmp);
+        }
 		val-=(val/divby)*divby;
 		divby/=10;
 	}
@@ -117,4 +119,22 @@ void msg32(const char txt[],uint32_t val) {
   serial_num32(val);
   serial_putch('\r');
 }
+
+void mydelay(uint16_t mst ) {
+// about 1/10th of a ms
+  while (mst > 0) {
+    _delay_us(100);
+    mst--;
+  }
+}
+
+bool delayOrKey (uint16_t mst) {
+    while (mst > 0) {
+        if ( (UCSRA & (1<<RXC)) >0) return true;
+        _delay_us(100);
+        mst--;
+    }
+    return false;
+}
+
 #endif 
