@@ -2,13 +2,17 @@
 #include "helper.h"
 #include <EEPROM.h>
 
+// pins for ints
+const byte pInt0 = 2;    // pd2
+const byte pInt1 = 3;    // pd3
+
 // pins for timers
-//const byte poc2B = 3;  // pd3   // reserved Tim2
 const byte pcin1 = 5;    // pd5   Input Count (for wgm 14,15)
 const byte picp1 = 8;    // pb0   Input Capt
 const byte poc1A = 9;    // pb1
 const byte poc1B = 10;   // pb2
 //const byte poc2A = 11; // pb3  // reserved Tim2
+
 
 // pins for debug
 const byte povf = 12;    //pb4
@@ -21,6 +25,7 @@ byte volatile cntO; // overflow
 byte volatile cntA; //
 byte volatile cntB; //
 byte volatile cntC; // capture
+byte volatile cnt1; // int1
 
 // Timer properties        to change
 byte tim1WGM = 0;        // w  to TCCRA and TCCRB
@@ -33,12 +38,13 @@ float uspt = 0.06255;    // usec per tick depending on quartz. must start with 0
 const uint16_t tim1presc[6] = {0, 1, 8, 64, 256, 1024};
 
 bool volatile autoOn = false; // y to switch
-uint16_t volatile ovcnt;
+uint16_t volatile ovcnt;        // overflow count -> hi word
 bool volatile ferdisch = false; // measure complete
-// ringbuffer for captured values
+// ringbuffer for captured values 4 bytes,
 typedef union {
   uint32_t za32;
   uint16_t za16[2];
+  uint16_t za08[4];
 } zahl_t;
 const byte ripuM = 32;
 zahl_t ripu[ripuM];
@@ -82,6 +88,7 @@ ISR(TIMER1_COMPB_vect) {
   cntB++;
 }
 
+
 ISR(TIMER1_CAPT_vect) {
   if (ripuP >= ripuM) return;
   PORTB |= dcapS; //debug
@@ -102,6 +109,28 @@ ISR(TIMER1_CAPT_vect) {
   cntC++;
   PORTB &= !dcapS; //debug
 }
+
+void int1() {
+  if (ripuP >= ripuM) return;
+  PORTB |= dcapS; //debug
+  ripu[ripuP].za16[0] = TCNT1;
+  if ( (TIFR1 & 1 << TOV1)) {  // if pending timer verflow
+    ripu[ripuP].za16[1] = ovcnt + 1;
+  } else {
+    ripu[ripuP].za16[1] = ovcnt;
+  }
+  ripuP++;
+  if (ripuP >= ripuM) {
+    if (autoOn)  { // no more capture ints
+      ferdisch = true;
+      return;
+    }
+    ripuP = 0;
+  }
+  cnt1++;
+  PORTB &= !dcapS; //debug
+}
+
 
 void writeKonfig(byte n) {
   int ea = n * 40;
@@ -159,7 +188,7 @@ float us2cs() {
 }
 void showCnts() {
   char str[80];
-  sprintf(str, "O:%4u A:%4u B:%4u C:%4u ", cntO, cntA, cntB, cntC);
+  sprintf(str, "O:%4u A:%4u B:%4u C:%4u 1:%4u", cntO, cntA, cntB, cntC, cnt1);
   Serial.println(str);
 }
 
@@ -195,51 +224,35 @@ void explainRegs() {
 
 void showRipu() {
   char str[120];
-  char strd[20];
-  char strf[20];
-  long delt, avg;
-  long dif;
   float zwi = us2cs();
   float dauer;
+  long delt;
 
-  // average is
-  avg = ripu[ripuM - 1].za32 - ripu[2].za32;
-  avg = avg / (ripuM - 3);
-  sprintf(str, "  P %2u  auto %1u  avg %10ld   uspt ",  ripuP, autoOn, avg);
+  sprintf(str, "  P %2u  auto %1u   uspt ",  ripuP, autoOn);
   Serial.print(str);
   Serial.print(uspt, 6); //sprintf doesn't like floats
   Serial.print("  clo ");
-  Serial.print(zwi, 6);
-  dauer = zwi * avg;
-  dauer = 1000000.0 / dauer; // freq
-  Serial.print("    ");
-  Serial.println(dauer, 3);
+  Serial.println(zwi, 6);
 
-  Serial.println(F(" #   Hi     Lo        long       ticks      abw     dur (us)       freq"));
+  Serial.println(F(" #   Hi     Lo        long       ticks       dur (ms) "));
 
   for (byte i = 0; i < ripuM; i++ ) {
     if (i == 0) {
       delt = 0;
-      dif = 0;
     } else {
       delt =  ripu[i].za32 - ripu[i - 1].za32;
-      dif = delt - avg;
-    }                 //
-    sprintf(str, "%2u %4u %6u  %10lu  %10ld  %+7ld   ", i, ripu[i].za16[1], ripu[i].za16[0], ripu[i].za32, delt, dif);
+    }
+    sprintf(str, "%2u %4u %6u  %10lu  %10ld  ", i, ripu[i].za16[1], ripu[i].za16[0], ripu[i].za32, delt);
+    Serial.print(str);
     if (i == 0) {
-      Serial.println(str);
+      Serial.println();
     } else {
-      Serial.print(str);
-      dauer = zwi * delt;
-      dtostrf(dauer, 9, 3, strd);
-      dauer = 1000000.0 / dauer; // freq
-      dtostrf(dauer, 9, 3, strf);
-      sprintf(str, " %s  %s", strd, strf);
+      dauer = zwi * delt / 1000;
+      dtostrf(dauer, 10, 3, str);
       Serial.println(str);
     }
-  }
+  } // next
 }
-
 void help () {
   Serial.println (F("_a  set OCR1A "));
   Serial.println (F("_b  set OCR1B "));
@@ -260,7 +273,7 @@ void help () {
   Serial.println (F("p   Pinmode outputs"));
   Serial.println (F("r   set low"));
   Serial.println (F("s   set high"));
-  Serial.println (F("_t  tick time in ms"));
+  Serial.println (F("_t  tick time in ms (0 to switch off)"));
   Serial.println (F("_u  set us per tick post-decs (e.g. 1234u means 0.01234"));
   Serial.println (F("_w  set wgm 0..15"));
   Serial.println (F("x   eXec one capture"));
@@ -389,11 +402,14 @@ void doCmd(char x) {
 
 
 void setup() {
-  const char info[] = "timer1 " __DATE__  " "  __TIME__;
+  const char info[] = "pinchng " __DATE__  " "  __TIME__;
   Serial.begin(38400);
   Serial.println(info);
+  pinMode(pInt0, INPUT_PULLUP);
+  pinMode(pInt1, INPUT_PULLUP);
   pinMode(picp1, INPUT_PULLUP);
   pinMode(pcin1, INPUT_PULLUP);
+
   pinMode(poc1A, OUTPUT);
   pinMode(poc1B, OUTPUT);
   pinMode(povf, OUTPUT);
@@ -404,6 +420,7 @@ void setup() {
   tickMs = 1000;
   readKonfig(0);
   timer1Init();
+  attachInterrupt(1, int1, RISING);
 }
 
 void loop() {

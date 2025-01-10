@@ -1,20 +1,15 @@
-// learning timer1 on atmega 328
+// use timer1 on atmega 328 for us-measure of several
+// use A0 (14) to A3 (17) (PC0 to PC3) as Inputs
+// use 8 to 11 (PB0 to PB3) as Outputs
 #include "helper.h"
 #include <EEPROM.h>
-
-// pins for timers
-//const byte poc2B = 3;  // pd3   // reserved Tim2
-const byte pcin1 = 5;    // pd5   Input Count (for wgm 14,15)
-const byte picp1 = 8;    // pb0   Input Capt
-const byte poc1A = 9;    // pb1
-const byte poc1B = 10;   // pb2
-//const byte poc2A = 11; // pb3  // reserved Tim2
-
-// pins for debug
-const byte povf = 12;    //pb4
-const byte dovfS = _BV(4); // to set/reset pin fast
-const byte pcap = 13;    //pb5
-const byte dcapS = _BV(5);
+/*
+  // pins for debug
+  const byte povf = 12;    //pb4
+  const byte dovfS = _BV(4); // to set/reset pin fast
+  const byte pcap = 13;    //pb5
+  const byte dcapS = _BV(5);
+*/
 
 // counts for ints, just used to see if called
 byte volatile cntO; // overflow
@@ -25,13 +20,17 @@ byte volatile cntC; // capture
 // Timer properties        to change
 byte tim1WGM = 0;        // w  to TCCRA and TCCRB
 byte tim1CS = 2;         // c  clock select to TCCRB
-byte tim1COM1A = 1;      // d  compare Match Output A 0..3 to  TCCRA
-byte tim1COM1B = 2;      // e  compare Match Output B 0..3 to  TCCRA
-byte tim1TIMSK1 = 33;    // f  interrupt enable to TIMSK1
-byte tim1IC =  2;        // m  ICNC1 and ICES1 0..3 to TCCRB
+byte tim1COM1A = 0;      // d  compare Match Output A 0..3 to  TCCRA
+byte tim1COM1B = 0;      // e  compare Match Output B 0..3 to  TCCRA
+byte tim1TIMSK1 = 1;    // f  interrupt enable to TIMSK1
+byte tim1IC =  0;        // m  ICNC1 and ICES1 0..3 to TCCRB
 float uspt = 0.06255;    // usec per tick depending on quartz. must start with 0.0  use u to set inp * 0.0001
 const uint16_t tim1presc[6] = {0, 1, 8, 64, 256, 1024};
 
+byte messN, messP;
+byte portBH = 15;
+byte portBL = portBH  ^ 0xFF;
+bool no15 = true;
 bool volatile autoOn = false; // y to switch
 uint16_t volatile ovcnt;
 bool volatile ferdisch = false; // measure complete
@@ -40,8 +39,9 @@ typedef union {
   uint32_t za32;
   uint16_t za16[2];
 } zahl_t;
-const byte ripuM = 32;
+const byte ripuM = 20;
 zahl_t ripu[ripuM];
+byte ripuLis  [ripuM];
 byte volatile ripuP = 0; // pointer, also used to stop recording when >=ripuM
 
 
@@ -49,7 +49,6 @@ byte volatile ripuP = 0; // pointer, also used to stop recording when >=ripuM
 void timer1Init() {
   TCCR1B = 0;  // stop timer by setting CS to 0
   TIMSK1 = 0; // no timer ints during init
-
   TCNT1 = 0;
   ovcnt = 0;
 
@@ -68,10 +67,8 @@ void timer1Init() {
 }
 
 ISR(TIMER1_OVF_vect) {
-  PORTB |= dovfS; //debug
   cntO++;
   ovcnt++;
-  PORTB &= !dovfS; //debug
 }
 
 ISR(TIMER1_COMPA_vect) {
@@ -83,24 +80,7 @@ ISR(TIMER1_COMPB_vect) {
 }
 
 ISR(TIMER1_CAPT_vect) {
-  if (ripuP >= ripuM) return;
-  PORTB |= dcapS; //debug
-  ripu[ripuP].za16[0] = ICR1;
-  if ( (TIFR1 & 1 << TOV1)) {  // if pending timer verflow
-    ripu[ripuP].za16[1] = ovcnt + 1;
-  } else {
-    ripu[ripuP].za16[1] = ovcnt;
-  }
-  ripuP++;
-  if (ripuP >= ripuM) {
-    if (autoOn)  { // no more capture ints
-      ferdisch = true;
-      return;
-    }
-    ripuP = 0;
-  }
   cntC++;
-  PORTB &= !dcapS; //debug
 }
 
 void writeKonfig(byte n) {
@@ -196,9 +176,7 @@ void explainRegs() {
 void showRipu() {
   char str[120];
   char strd[20];
-  char strf[20];
   long delt, avg;
-  long dif;
   float zwi = us2cs();
   float dauer;
 
@@ -209,32 +187,24 @@ void showRipu() {
   Serial.print(str);
   Serial.print(uspt, 6); //sprintf doesn't like floats
   Serial.print("  clo ");
-  Serial.print(zwi, 6);
-  dauer = zwi * avg;
-  dauer = 1000000.0 / dauer; // freq
-  Serial.print("    ");
-  Serial.println(dauer, 3);
+  Serial.println(zwi, 6);
 
-  Serial.println(F(" #   Hi     Lo        long       ticks      abw     dur (us)       freq"));
+  Serial.println(F(" #  inp  Hi     Lo        long       ticks    dur (us)"));
 
   for (byte i = 0; i < ripuM; i++ ) {
     if (i == 0) {
       delt = 0;
-      dif = 0;
     } else {
       delt =  ripu[i].za32 - ripu[i - 1].za32;
-      dif = delt - avg;
     }                 //
-    sprintf(str, "%2u %4u %6u  %10lu  %10ld  %+7ld   ", i, ripu[i].za16[1], ripu[i].za16[0], ripu[i].za32, delt, dif);
+    sprintf(str, "%2u %3u  %5u %5u  %10lu  %10ld      ", i, ripuLis[i], ripu[i].za16[1], ripu[i].za16[0], ripu[i].za32, delt);
     if (i == 0) {
       Serial.println(str);
     } else {
       Serial.print(str);
       dauer = zwi * delt;
       dtostrf(dauer, 9, 3, strd);
-      dauer = 1000000.0 / dauer; // freq
-      dtostrf(dauer, 9, 3, strf);
-      sprintf(str, " %s  %s", strd, strf);
+      sprintf(str, " %s  ", strd);
       Serial.println(str);
     }
   }
@@ -317,6 +287,7 @@ void doCmd(char x) {
       explainRegs();
       msgF(F("TCCR1B"), TCCR1B);
       msgF(F("TIMSK1"), TIMSK1);
+
       break;
     case 'j':
       //explainRegs();
@@ -340,19 +311,14 @@ void doCmd(char x) {
       msgF(F("FOC"), TCCR1C);
       break;
     case 'p':
-      pinMode(poc1A, OUTPUT);
-      pinMode(poc1B, OUTPUT);
-      msgF(F("Pinmodes"), 0);
       break;
     case 'r':
-      digitalWrite(poc1A, LOW);
-      digitalWrite(poc1B, LOW);
-      msgF(F("Set to "), 0);
       break;
     case 's':
-      digitalWrite(poc1A, HIGH);
-      digitalWrite(poc1B, HIGH);
-      msgF(F("Set to"), 1);
+      portBH = inp & 15;
+      portBL = portBH  ^ 0xFF;
+      msgF(F("portBH"), portBH);
+      msgF(F("portBL"), portBL);
       break;
     case 't':   //
       tickMs = inp;
@@ -372,6 +338,7 @@ void doCmd(char x) {
       break;
     case 'x': //start in auto
       ovcnt = 0; // to get convenient values
+      messP = 0; // force 1st mess
       ripuP = 0;
       break;
     case 'y':
@@ -389,15 +356,15 @@ void doCmd(char x) {
 
 
 void setup() {
-  const char info[] = "timer1 " __DATE__  " "  __TIME__;
+  const char info[] = "hcsr04 " __DATE__  " "  __TIME__;
   Serial.begin(38400);
   Serial.println(info);
-  pinMode(picp1, INPUT_PULLUP);
-  pinMode(pcin1, INPUT_PULLUP);
-  pinMode(poc1A, OUTPUT);
-  pinMode(poc1B, OUTPUT);
-  pinMode(povf, OUTPUT);
-  pinMode(pcap, OUTPUT);
+  for (byte i = 8; i < 14; i++ ) {
+    pinMode(i, OUTPUT);
+  }
+  for (byte i = 14; i < 18; i++ ) {
+    pinMode(i, INPUT_PULLUP);
+  }
 
   OCR1A = 100;
   OCR1B = 60;
@@ -410,16 +377,44 @@ void loop() {
   if (Serial.available() > 0) {
     doCmd( Serial.read());
   }
-
+  // check for changed inputs
+  if (ripuP < ripuM) {
+    messN = PINC & 0x0F;
+    if (messN != messP) {
+      ripu[ripuP].za16[0] = TCNT1;
+      if ( (TIFR1 & 1 << TOV1)) {  // if pending timer verflow
+        ripu[ripuP].za16[1] = ovcnt + 1;
+      } else {
+        ripu[ripuP].za16[1] = ovcnt;
+      }
+      ripuLis[ripuP] = messN;
+      messP = messN;
+      ripuP++;
+      if (ripuP >= ripuM) {
+        if (autoOn)  { // no more capture ints
+          ferdisch = true;
+        } else {
+          ripuP = 0;
+        }
+      }  // ripuM
+    }   //mess changed
+  }
   if (ferdisch) {
     ferdisch = false;
     showRipu();
   }
   currMs = millis();
   if (tickMs > 0) {
-    if ((currMs - prevMs >= tickMs) ) {
-      doCmd('x');
+    if ((currMs - prevMs >= tickMs) ) {  // start Mess
       prevMs = currMs;
+      //digitalWrite(Trig_pin, LOW);
+      PORTB &= portBL;
+      delayMicroseconds(2);
+      //digitalWrite(Trig_pin, HIGH);
+      PORTB |= portBH;
+      delayMicroseconds(10);
+      //digitalWrite(Trig_pin, LOW);
+      PORTB &= portBL;
     }
   }
 }
