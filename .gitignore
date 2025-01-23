@@ -1,0 +1,4 @@
+# include eigene from libraries only
+!libraries/
+libraries/*
+!libraries/eigene
