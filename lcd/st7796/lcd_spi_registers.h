@@ -1,4 +1,5 @@
 // Register names from Peter Barrett's Microtouch code
+/*
 #define ILI932X_START_OSC          0x00
 #define ILI932X_DRIV_OUT_CTRL      0x01
 #define ILI932X_DRIV_WAV_CTRL      0x02
@@ -49,7 +50,7 @@
 #define ILI932X_PANEL_IF_CTRL4     0x95
 #define ILI932X_PANEL_IF_CTRL5     0x97
 #define ILI932X_PANEL_IF_CTRL6     0x98
-
+*/
 #define HX8347G_COLADDRSTART_HI    0x02
 #define HX8347G_COLADDRSTART_LO    0x03
 #define HX8347G_COLADDREND_HI      0x04

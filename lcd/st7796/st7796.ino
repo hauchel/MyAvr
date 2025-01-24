@@ -4,8 +4,7 @@
 #include "LCDWIKI_GUI.h" // Core graphics library
 #include "LCDWIKI_SPI.h" // Hardware-specific library
 #include "helper.h"
-//paramters define
-#define MODEL ST7796S
+
 /*
   GND
   VCC
@@ -17,7 +16,7 @@
   BL   7
 */
 //                      CS, CD, RST, LED
-LCDWIKI_SPI mylcd(MODEL, 10, 9, 8, 7);
+LCDWIKI_SPI mylcd(ST7796S, 10, 9, 8, 7);
 #define  BLACK   0x0000
 #define BLUE    0x001F
 #define RED     0xF800
@@ -28,6 +27,7 @@ LCDWIKI_SPI mylcd(MODEL, 10, 9, 8, 7);
 #define WHITE   0xFFFF
 
 bool textmode;
+bool ledmode;
 uint16_t  myx, myy;
 void doCmd(char x) {
   Serial.print(char(x));
@@ -50,6 +50,11 @@ void doCmd(char x) {
     case 'f':
       mylcd.Fill_Screen(inp);
       break;
+    case 'l':
+      ledmode = !ledmode;
+      mylcd.Led_control(ledmode);
+      msgF(F("ledmode"), ledmode);
+      break;
     case 'p':
       mylcd.Print_String("Hello World!", myx, myy);
       break;
@@ -61,7 +66,6 @@ void doCmd(char x) {
       mylcd.Set_Rotation(inp);
       msgF(F("Rot"), mylcd.Get_Rotation());
       break;
-
     case 't':
       textmode = !textmode;
       mylcd.Set_Text_Mode(textmode);
@@ -71,17 +75,26 @@ void doCmd(char x) {
       mylcd.Set_Text_Size(inp);
       msgF(F("textsize"), mylcd.Get_Text_Size());
       break;
+    case 'u':
+      msgF(F("wrifill"), inp);
+      while (inp < 100) {
+        mylcd.Write(char(inp));
+        inp++;
+      }
+      break;
     case 'w':
-      mylcd.write(char(inp));
+      mylcd.Write(char(inp));
       msgF(F("write"), inp);
       break;
     case 'x':
       myx = inp;
-      msgF(F("x"), myx);
+      mylcd.Set_Text_Cursor(myx, myy);
+      msgF(F("Tx"), mylcd.Get_Text_X_Cursor() );
       break;
     case 'y':
       myy = inp;
-      msgF(F("y"), myy);
+      mylcd.Set_Text_Cursor(myx, myy);
+      msgF(F("Ty"), mylcd.Get_Text_Y_Cursor() );
       break;
     default:
       Serial.print('?');
@@ -94,9 +107,10 @@ void setup() {
   Serial.begin(38400);
   Serial.println(info);
   mylcd.Init_LCD();
-  mylcd.Set_Rotation(0);
-  mylcd.Set_Text_Back_Color(0xFFFF); // White
-  mylcd.Set_Text_Color(0x0000); // Black
+  mylcd.Set_Rotation(1);
+  mylcd.Set_Text_Size(2);
+  mylcd.Set_Text_Color(0xFFFF); // White
+  mylcd.Set_Text_Back_Color(0x0000); // Black
   mylcd.Set_Draw_color(0xFFFF); // White
 }
 
