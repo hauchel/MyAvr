@@ -12,20 +12,20 @@
 #include "helper.h"
 #include <Wire.h>
 
-const byte pEnaSpa = 9; // Enable L293 with Hi
-const byte pEnaZei = 8; // Enable HC138
-uint16_t dauer = 15;  // pulse Spalte in about 10th of ms
+const byte pEnaSpa = 9;  // Enable L293 with Hi
+const byte pEnaZei = 8;  // Enable HC138
+uint16_t dauer = 15;     // pulse Spalte in about 10th of ms
 bool verbo = false;
 byte runprog = 0;
-uint16_t progwait = 2000; // wait between steps in 10th of ms
+uint16_t progwait = 2000;  // wait between steps in 10th of ms
 byte zeile = 0;
-byte mcpDev = 0x27; // TWI-ADDR fr test
+byte mcpDev = 0x27;  // TWI-ADDR fr test
 byte mcpZei = 0x20;
 byte mcpSpa = 0x27;
 
 const byte zMax = 5;
 // 15 bit values for nums    0         2     3         5
-const uint16_t ziff[10] = {31599, 1, 29671, 31207, 4, 31183};
+const uint16_t ziff[10] = { 31599, 1, 29671, 31207, 4, 31183 };
 byte wert[zMax];
 
 #define ENAZei digitalWrite(pEnaZei, LOW);
@@ -48,14 +48,14 @@ void setMcp(byte reg, byte val) {
   checkEot();
 }
 
-void setSpalte( byte val) {
+void setSpalte(byte val) {
   Wire.beginTransmission(mcpSpa);
   Wire.write(9);
   Wire.write(val);
   checkEot();
 }
 
-void setZeile( byte val) {
+void setZeile(byte val) {
   Wire.beginTransmission(mcpZei);
   Wire.write(9);
   Wire.write(val);
@@ -74,11 +74,11 @@ byte getMcp(byte reg) {
 void setupMcp(byte dev) {
   // as output
   mcpDev = dev;
-  setMcp (0, 0); // IODIR output
-  setMcp (9, 0); // GPIO value
+  setMcp(0, 0);  // IODIR output
+  setMcp(9, 0);  // GPIO value
 }
 
-void mydelay(uint16_t mst ) {
+void mydelay(uint16_t mst) {
   // about 1/10th of a ms
   while (mst > 0) {
     _delay_us(100);
@@ -101,9 +101,9 @@ void strobe() {
   // disable Photomos
 }
 
-bool delayOrKey (uint16_t mst) {
+bool delayOrKey(uint16_t mst) {
   while (mst > 0) {
-    if ( Serial.available() > 0) return true;
+    if (Serial.available() > 0) return true;
     _delay_us(100);
     mst--;
   }
@@ -140,7 +140,7 @@ void scanne() {
 
 
 uint8_t prog1() {
-  static uint8_t  w;
+  static uint8_t w;
   w = w << 1;
   if (w == 0) w = 1;
   setSpalte(w);
@@ -151,11 +151,11 @@ uint8_t prog1() {
 }
 
 uint8_t prog2() {
-  static uint8_t  w;
+  static uint8_t w;
   w = w << 1;
-  if (w == 0)   w = 1;
+  if (w == 0) w = 1;
   setSpalte(w);
-  if (w == 128) { // clear
+  if (w == 128) {  // clear
     setZeile(BIT4Null);
   } else {
     setZeile(BIT4Eins);
@@ -167,7 +167,7 @@ uint8_t prog2() {
 }
 
 uint8_t prog3() {
-  static uint8_t  w;
+  static uint8_t w;
   w = w << 1;
   if (w == 0) {
     setSpalte(w);
@@ -184,7 +184,7 @@ uint8_t prog3() {
 }
 
 uint8_t prog4() {
-  static uint8_t  myz;
+  static uint8_t myz;
   byte zs = zeile;
   zeile = myz;
   if (prog2() == 128) {
@@ -236,9 +236,9 @@ void trans() {
 void prompt() {
   char str[50];
   sprintf(str, "Z%2u y%3u", zeile, wert[zeile]);
-  if (digitalRead(pEnaZei) == 0)strcat (str, " ZEI ");
-  if (digitalRead(pEnaSpa) == 1) strcat (str, " SPA ");
-  strcat (str, "> ");
+  if (digitalRead(pEnaZei) == 0) strcat(str, " ZEI ");
+  if (digitalRead(pEnaSpa) == 1) strcat(str, " SPA ");
+  strcat(str, "> ");
   Serial.print(str);
 }
 
@@ -275,26 +275,26 @@ void doCmd(byte cmd) {
       dauer = inp;
       msgF(F("Dauer"), dauer);
       break;
-    case 'g':   //
-      msgF(F("Get"),  getMcp(inp));
+    case 'g':  //
+      msgF(F("Get"), getMcp(inp));
       break;
     case 'n':
       setSpalte(inp);
       msgF(F("Spalte "), inp);
       break;
-    case 'o':   //
+    case 'o':  //
       setSpalte(inp);
       strobe();
       prnF(F("Stro\n"));
       break;
-    case 'p':   //
+    case 'p':  //
       pulse();
       msgF(F("Pulse"), dauer);
       break;
     case 'R':
       setup();
       break;
-    case 'S':   //
+    case 'S':  //
       scanne();
       break;
     case 't':
@@ -305,7 +305,7 @@ void doCmd(byte cmd) {
       mcpDev = inp;
       msgF(F("mcpDev now"), mcpDev);
       break;
-    case 'v':   //
+    case 'v':  //
       verbo = !verbo;
       if (verbo) {
         prnF(F("Verbose an\n"));
@@ -340,7 +340,7 @@ void doCmd(byte cmd) {
       break;
     case '-':
       if (zeile == 0) zeile = zMax;
-      zeile-- ;
+      zeile--;
       prnF(F("\n"));
       break;
     case '>':
@@ -360,12 +360,12 @@ void doCmd(byte cmd) {
     default:
       Serial.print(cmd);
       prnF(F("?  scan, direction, port, olat, nread, verbose"));
-  } //case
+  }  //case
   prompt();
 }
 
 void setup() {
-  const char info[] = "MCP23008Flip " __DATE__  " " __TIME__;
+  const char info[] = "MCP23008Flip " __DATE__ " " __TIME__;
   pinMode(pEnaSpa, OUTPUT);  // disable  Spalte
   DISSpa;
   pinMode(pEnaZei, OUTPUT);  // disable
@@ -373,15 +373,15 @@ void setup() {
   Serial.begin(38400);
   Serial.println(info);
   Wire.begin();
-  setupMcp ( mcpZei);
-  setupMcp ( mcpSpa);
+  setupMcp(mcpZei);
+  setupMcp(mcpSpa);
   prompt();
 }
 
 void loop() {
   if (Serial.available() > 0) {
-    doCmd( Serial.read());
-  } // serial
+    doCmd(Serial.read());
+  }  // serial
 
   if (runprog > 0) {
     switch (runprog) {
@@ -401,10 +401,10 @@ void loop() {
         msgF(F("invalid prog"), runprog);
         runprog = 0;
     }  // case
-  } // if
+  }    // if
 
   currMs = millis();
   if (currMs - prevMs > 1000) {
     prevMs = currMs;
-  } // timer
+  }  // timer
 }

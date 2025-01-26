@@ -11,7 +11,27 @@
 | This example provides a simple interactive serial terminal that       |
 | provides flash read/write functionality.                              |
 |                                                                       |
-| A RAM buffer (ram_buffer) is required for this library to work. It    |
+| A RAM buffer (ram_buffer) is required for this library to work. It  
+252627282930311112131415161718192021222324
+#include <Minicore.h>
+
+// Define the number of pages you want to write to here (limited by flash size)
+#define NUMBER_OF_PAGES 8
+
+// Define your termination and blank character here
+const char terminationChar = '@';
+
+// The temporary data (data that's read or is about to get written) is stored here
+uint8_t ram_buffer[SPM_PAGESIZE];
+
+D:\gits\MyAvr\Mega328PB\flashtest\flashtest.ino:21:10: fatal error: Minicore.h: No such file or directory
+ #include <Minicore.h>
+          ^~~~~~~~~~~~
+compilation terminated.
+exit status 1
+
+Compilation error: Minicore.h: No such file or directory
+  |
 | acts as a memory pool you can read from and write to, and recommended |
 | size for this buffer is one flash page, 256/128/64 bytes depending on |
 | what chip you're using. ram_buffer[] and flash[] is the exact same    |
@@ -30,19 +50,18 @@ const char terminationChar = '@';
 uint8_t ram_buffer[SPM_PAGESIZE];
 
 // This array allocates the space you'll be able to write to
-const uint8_t flash_space[SPM_PAGESIZE * NUMBER_OF_PAGES] __attribute__ (( aligned(SPM_PAGESIZE) )) PROGMEM = {
+const uint8_t flash_space[SPM_PAGESIZE * NUMBER_OF_PAGES] __attribute__((aligned(SPM_PAGESIZE))) PROGMEM = {
   "This some default content stored at page zero"
 };
 
 // Flash constructor
 Flash flash(flash_space, sizeof(flash_space), ram_buffer, sizeof(ram_buffer));
 
-void setup()
-{
-  const char ich[] PROGMEM = "flashtest " __DATE__  " " __TIME__;
+void setup() {
+  const char ich[] PROGMEM = "flashtest " __DATE__ " " __TIME__;
   Serial.begin(38400);
   Serial.println(ich);
-/*
+  /*
   if (!flash.check_writable())
   {
     Serial.println(F("Incompatible or no Urboot compatible bootloader present! Please burn correct bootloader"));
@@ -52,8 +71,7 @@ void setup()
 }
 
 
-void loop()
-{
+void loop() {
   // Print main menu
   Serial.println();
   Serial.println(F("|------------------------------------------------|"));
@@ -81,14 +99,13 @@ void loop()
   static char returnToMenu;
 
   // Get menu option from the serial monitor
-  do
-  {
-    while(!Serial.available());
+  do {
+    while (!Serial.available())
+      ;
     menuOption = Serial.read();
-    if(menuOption != '1' && menuOption != '2')
+    if (menuOption != '1' && menuOption != '2')
       Serial.print(F("\nPlease enter a valid option! "));
-  }
-  while(menuOption != '1' && menuOption != '2');
+  } while (menuOption != '1' && menuOption != '2');
 
   Serial.print(F("\nOption "));
   Serial.print(menuOption);
@@ -96,8 +113,7 @@ void loop()
 
 
   // Read flash option selected
-  if(menuOption == '1')
-  {
+  if (menuOption == '1') {
     Serial.print(F("Which page number do you want to read? Page 0 to "));
     Serial.print(NUMBER_OF_PAGES - 1);
     Serial.print(F(", Page "));
@@ -105,20 +121,18 @@ void loop()
     Serial.print(F(" to show all pages: "));
 
     //Get page number from the serial monitor
-    do
-    {
-      while(!Serial.available());
+    do {
+      while (!Serial.available())
+        ;
       pageNumber = Serial.read() - 0x30;
-      if(pageNumber > NUMBER_OF_PAGES)
-      {
+      if (pageNumber > NUMBER_OF_PAGES) {
         Serial.print(F("\nPlease enter a valid page between 0 and "));
         Serial.print(NUMBER_OF_PAGES - 1);
         Serial.println(F(". The number of pages can be extended by changing NUMBER_OF_PAGES constant"));
       }
-    }
-    while(pageNumber > NUMBER_OF_PAGES);
+    } while (pageNumber > NUMBER_OF_PAGES);
 
-    if(pageNumber <= NUMBER_OF_PAGES)
+    if (pageNumber <= NUMBER_OF_PAGES)
       Serial.println(pageNumber);
 
     // READ SELECTED PAGE AND STORE THE CONTENT IN THE ramBuffer ARRAY
@@ -129,20 +143,17 @@ void loop()
     uint8_t pageFirst = 0;
     uint8_t pageLast = NUMBER_OF_PAGES;
 
-    if(pageNumber != NUMBER_OF_PAGES)
-    {
+    if (pageNumber != NUMBER_OF_PAGES) {
       pageFirst = pageNumber;
       pageLast = pageNumber + 1;
     }
-    for(uint8_t page = pageFirst; page < pageLast; page++)
-    {
+    for (uint8_t page = pageFirst; page < pageLast; page++) {
       flash.fetch_page(page);
       Serial.print(F("Page "));
       Serial.print(page);
       Serial.print(F(": "));
-      for(uint16_t i = 0; i < flash.buffer_size(); i++)
-      {
-        if(flash[i] == 0x00 || flash[i] == 0xff)
+      for (uint16_t i = 0; i < flash.buffer_size(); i++) {
+        if (flash[i] == 0x00 || flash[i] == 0xff)
           Serial.write('.');
         else
           Serial.write(flash[i]);
@@ -153,25 +164,22 @@ void loop()
 
 
   // Write flash option selected
-  else if(menuOption == '2')
-  {
+  else if (menuOption == '2') {
     // Clear pageNumber
     pageNumber = 0xff;
 
     //Get page number from the serial monitor
     Serial.print(F("\nWhich page do you want to write to? Page: "));
-    do
-    {
-      while(!Serial.available());
+    do {
+      while (!Serial.available())
+        ;
       pageNumber = Serial.read() - 0x30;
-      if(pageNumber > NUMBER_OF_PAGES - 1)
-      {
+      if (pageNumber > NUMBER_OF_PAGES - 1) {
         Serial.print(F("\nPlease enter a valid page between 0 and "));
         Serial.print(NUMBER_OF_PAGES - 1);
         Serial.println(F(". The number of pages can be extended by changing NUMBER_OF_PAGES constant"));
       }
-    }
-    while(pageNumber >= NUMBER_OF_PAGES);
+    } while (pageNumber >= NUMBER_OF_PAGES);
     Serial.println(pageNumber);
 
     // Print prompt to enter some new characters to write to flash
@@ -185,14 +193,11 @@ void loop()
     // Get all characters from the serial monitor and store it to the ramBuffer
     flash.clear_buffer();
     uint16_t counter = 0;
-    while (counter < SPM_PAGESIZE && charBuffer != terminationChar)
-    {
-      if(Serial.available() > 0)
-      {
-        charBuffer = Serial.read(); // read character from serial
-        if(charBuffer != terminationChar)
-        {
-          Serial.write(charBuffer); // echo character back
+    while (counter < SPM_PAGESIZE && charBuffer != terminationChar) {
+      if (Serial.available() > 0) {
+        charBuffer = Serial.read();  // read character from serial
+        if (charBuffer != terminationChar) {
+          Serial.write(charBuffer);  // echo character back
           flash[counter] = charBuffer;
           counter++;
         }
@@ -205,20 +210,19 @@ void loop()
     flash.write_page(pageNumber);
 
     Serial.println(F("Writing finished. You can now reset or power cycle the board and check for new contents!"));
-  } // End of flash write option
+  }  // End of flash write option
 
 
 
   //Return to the main menu if 'm' is sent
   Serial.println(F("\ntype the character 'm' to return to to the main menu"));
-  do
-  {
-    while(!Serial.available());
+  do {
+    while (!Serial.available())
+      ;
     returnToMenu = Serial.read();
-    if(returnToMenu != 'm')
+    if (returnToMenu != 'm')
       Serial.print(F("\nPlease type a valid character! "));
-  }
-  while(returnToMenu != 'm');
+  } while (returnToMenu != 'm');
   returnToMenu = 0;
 
-} // End of loop
+}  // End of loop
