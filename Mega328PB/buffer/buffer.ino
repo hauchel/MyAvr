@@ -2,7 +2,7 @@
 // and write to flash with minicore (328PB 3.3V 8MHz)
 // eeprom keeps index
 
-#include <Minicore.h>
+#include <Flash.h>
 #include <EEPROM.h>
 
 

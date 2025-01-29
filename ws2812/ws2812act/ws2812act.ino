@@ -1,16 +1,28 @@
-/* Sketch  to play with WS2812 LEDs
+/* Sketch  to play Tetris with WS2812 LEDs
   based on driver discussed and made by Tim in http://www.mikrocontroller.net/topic/292775
-  Commands read via serial, from and to Flash using optiboot.
+  Commands read via serial, from and to Flash using minicore
+  Input 2 (must be) as rc5; A0 to A5 as buttons
+  Output 
 */
 
 #define LEDNUM 256          // Number of LEDs in stripe
 #define ws2812_port PORTB   // Data port register
 #define ws2812_pin 1        // Number of the data out pin there ,
 #define ws2812_out 9       // resulting Arduino num
-#include "optiboot.h"
+
 // allocate flash to write to, must be initialized, one more than used as 0 for EOS
+#include <Flash.h>
 #define NUMBER_OF_PAGES 50
 const uint8_t flashSpace[SPM_PAGESIZE * (NUMBER_OF_PAGES + 1)] __attribute__ (( aligned(SPM_PAGESIZE) )) PROGMEM = {"\x0"};
+const byte befM = SPM_PAGESIZE;        // size bef
+typedef union {
+  char  bef[befM];
+  uint8_t ramBuffer[SPM_PAGESIZE];
+} chunk_t ;
+chunk_t chunk;
+Flash flash(flashSpace, sizeof(flashSpace),chunk.ramBuffer, sizeof(chunk.ramBuffer));
+
+
 #define ARRAYLEN LEDNUM *3  // 
 byte   ledArray[ARRAYLEN + 3]; // Buffer GRB plus one pixel
 
@@ -34,12 +46,6 @@ unsigned long currTim;        // Time
 unsigned long prevTim = 0;    //
 unsigned long tickTim = 20;   // in ms
 unsigned long startTim;       // set when starting exe
-const byte befM = SPM_PAGESIZE;        // size bef
-typedef union {
-  char  bef[befM];
-  uint8_t ramBuffer[SPM_PAGESIZE];
-} chunk_t ;
-chunk_t chunk;
 
 int befP;               // next to execute
 byte befNum;           // current bef: 0..39 and 40 ..
@@ -148,7 +154,7 @@ bool readPage(byte page) {
   page = 1 + page - pgmbefM;
   msgF(F("readPage"), page);
   if (page <= NUMBER_OF_PAGES) {
-    optiboot_readPage(flashSpace, chunk.ramBuffer, page);
+    flash.fetch_page(page);
     return true;
   } else {
     errF(F("Page max "), NUMBER_OF_PAGES);
@@ -160,7 +166,7 @@ void writePage(byte page) {
   page = 1 + page - pgmbefM;
   msgF(F("writePage"), page);
   if (page <= NUMBER_OF_PAGES) {
-    optiboot_writePage(flashSpace, chunk.ramBuffer, page);
+    flash.write_page(page);
   } else {
     errF(F("Page max "), NUMBER_OF_PAGES);
   }
