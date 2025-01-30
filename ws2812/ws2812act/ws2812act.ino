@@ -5,6 +5,13 @@
   Output 
 */
 
+// mutually exclusive for different Variants
+#define TETRIS
+//#define FONTS
+//#define NORMAL
+
+
+
 #define LEDNUM 256          // Number of LEDs in stripe
 #define ws2812_port PORTB   // Data port register
 #define ws2812_pin 1        // Number of the data out pin there ,
@@ -34,17 +41,13 @@ byte color[colorM * 3];
 bool debug;                   // true if
 byte  runMode;                // 0 not run, 1 single step, 2 ss after exe, 3 run
 bool   upd;                   // true refresh disp
-int    inp;                   // numeric input
-int    inpsw;                 // swap-register
-bool inpAkt = false;          // true if last input was a number
-const byte inpSM = 7;        // Stack for inps conf
-int inpStck[inpSM];           //
+uint16_t    inpsw;            // swap-register
+const byte inpSM = 7;         // Stack for inps conf
+uint16_t inpStck[inpSM];           //
 byte  inpSP = 0;              //
 byte verb = 3;                // verbose 0 garnix 1 (.*) 2 debug 3 alles
 bool echo = true ;            // echo back chars received
-unsigned long currTim;        // Time
-unsigned long prevTim = 0;    //
-unsigned long tickTim = 20;   // in ms
+
 unsigned long startTim;       // set when starting exe
 
 int befP;               // next to execute
@@ -83,37 +86,10 @@ int loopCurr[loopM];
 int loopInc[loopM];
 int loopEnd[loopM];
 byte loopBefP[loopM];
-#define TETRIS
 
+#include "helper.h"
 #include "myBefs.h"
 #include "rc5_tim2.h"
-
-void prnt(PGM_P p) {
-  while (1) {
-    char c = pgm_read_byte(p++);
-    if (c == 0) break;
-    Serial.write(c);
-  }
-  Serial.write(" ");
-}
-
-void msgF(const __FlashStringHelper *ifsh, int n) {
-  // text verbraucht nur flash
-  if (verb > 1) {
-    PGM_P p = reinterpret_cast<PGM_P>(ifsh);
-    prnt(p);
-    Serial.println(n);
-  }
-}
-
-void debF(const __FlashStringHelper *ifsh, int n, byte lev) {
-  // text verbraucht nur flash
-  if (verb >= lev) {
-    PGM_P p = reinterpret_cast<PGM_P>(ifsh);
-    prnt(p);
-    Serial.println(n);
-  }
-}
 
 void errF(const __FlashStringHelper *ifsh, int n) {
   runMode = 0;
@@ -145,10 +121,6 @@ byte evqGet() {
   if (evqOut >= evqM) evqOut = 0;
   return tmp;
 }
-
-#ifdef TETRIS
-#include "tetris.h"
-#endif
 
 bool readPage(byte page) {
   page = 1 + page - pgmbefM;
@@ -333,6 +305,10 @@ bool pgm2Bef(byte num) {
   befNum = num;
   return true;
 }
+
+#ifdef TETRIS
+#include "tetris.h"
+#endif
 
 bool char2Bef(byte num) {
   if (num >= charbefM) {
@@ -639,33 +615,22 @@ byte bef2end() {
   errF(F("bef2end no End??"), befP);
   return 0;
 }
-#include "myFuncs.h"
+
+
+#ifdef NORMAL
+#include "normal.h"
+#endif
+
+#ifdef FONTS
+#include "fonts.h"
+#endif
 
 
 char doCmd(unsigned char tmp) {
-  bool weg = false;
   int zwi;
   byte zwib;
   // handle numbers
-  if ( tmp == 8) { //backspace removes last digit
-    weg = true;
-    inp = inp / 10;
-  } else  if (tmp == '#') {
-    inp++;
-    weg = true;
-  }
-  if ((tmp >= '0') && (tmp <= '9')) {
-    weg = true;
-    if (inpAkt) {
-      inp = inp * 10 + (tmp - '0');
-    } else {
-      inpAkt = true;
-      inp = tmp - '0';
-    }
-  }
-  if (weg) {
-    // Serial.print("\b\b\b\b");
-    // Serial.print(inp);
+  if (doNum(tmp)) {
     return tmp;
   }
   if (tmp != 's') { // trace
@@ -804,8 +769,8 @@ char doCmd(unsigned char tmp) {
       }
       break;
     case 'T':
-      tickTim = inp;
-      msgF(F("tickTim"), inp);
+      tickMs = inp;
+      msgF(F("tick "), inp);
       break;
     case 'u':   //
       nextLoop();
@@ -922,7 +887,17 @@ char doCmd(unsigned char tmp) {
 }
 
 void setup() {
-  const char ich[] PROGMEM = "ws2812ACT " __DATE__  " " __TIME__;
+  
+#ifdef NORMAL
+  const char ich[] PROGMEM = "ws2812act NORMAL" __DATE__  " " __TIME__;
+#endif
+#ifdef TETRIS
+  const char ich[] PROGMEM = "ws2812act TETRIS" __DATE__  " " __TIME__;
+#endif
+#ifdef FONTS
+  const char ich[] PROGMEM = "ws2812act FONTS" __DATE__  " " __TIME__;
+#endif
+
   Serial.begin(38400);
   Serial.println(ich);
   pinMode(ws2812_out, OUTPUT);
@@ -1013,11 +988,11 @@ void loop() {
     }
   } // agents
 
-  currTim = millis();
-  if (currTim - prevTim >= tickTim) {
+  currMs = millis();
+  if ((currMs - prevMs >= tickMs)) {
     if (verb > 2) Serial.print('.');
 
-    prevTim = currTim;
+    prevMs = currMs;
     if (agentsOn) tick++;
 
     butt = PINC & 0x3F; //A0 to A5
